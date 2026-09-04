@@ -1,0 +1,14 @@
+{
+  "name": "@openchart/ops",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@openchart/ir": "0.0.0",
+    "immer": "11.1.18",
+    "zod": "4.5.4"
+  }
+}

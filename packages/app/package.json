@@ -1,0 +1,36 @@
+{
+  "name": "@openchart/app",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite --host 127.0.0.1"
+  },
+  "dependencies": {
+    "@phosphor-icons/core": "2.1.1",
+    "@tauri-apps/api": "2.11.1",
+    "@tauri-apps/plugin-dialog": "2.7.2",
+    "@openchart/agent": "0.0.0",
+    "@openchart/connectors": "0.0.0",
+    "@openchart/derive": "0.0.0",
+    "@openchart/interact": "0.0.0",
+    "@openchart/ir": "0.0.0",
+    "@openchart/ops": "0.0.0",
+    "@openchart/render": "0.0.0",
+    "@openchart/scene": "0.0.0",
+    "@openchart/serialize": "0.0.0",
+    "@openchart/shapes": "0.0.0",
+    "elkjs": "0.12.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.5",
+    "vite": "8.2.2"
+  }
+}

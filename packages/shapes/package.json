@@ -1,0 +1,16 @@
+{
+  "name": "@openchart/shapes",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./libraries": "./src/libraries-index.ts",
+    "./libraries-core": "./src/libraries-core.ts"
+  },
+  "dependencies": {
+    "@openchart/ir": "0.0.0",
+    "svgpath": "2.6.0",
+    "zod": "4.5.4"
+  }
+}

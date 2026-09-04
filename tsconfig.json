@@ -1,0 +1,44 @@
+{
+  "files": [],
+  "references": [
+    {
+      "path": "./packages/connectors"
+    },
+    {
+      "path": "./packages/ir"
+    },
+    {
+      "path": "./packages/ops"
+    },
+    {
+      "path": "./packages/derive"
+    },
+    {
+      "path": "./packages/persistence"
+    },
+    {
+      "path": "./packages/agent"
+    },
+    {
+      "path": "./packages/serialize"
+    },
+    {
+      "path": "./packages/render"
+    },
+    {
+      "path": "./packages/scene"
+    },
+    {
+      "path": "./packages/shapes"
+    },
+    {
+      "path": "./packages/vendor-packs"
+    },
+    {
+      "path": "./packages/interact"
+    },
+    {
+      "path": "./packages/app"
+    }
+  ]
+}

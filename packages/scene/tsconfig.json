@@ -1,0 +1,26 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "."
+  },
+  "include": [
+    "benchmark/**/*.ts",
+    "src/**/*.ts",
+    "test/**/*.ts"
+  ],
+  "references": [
+    {
+      "path": "../connectors"
+    },
+    {
+      "path": "../derive"
+    },
+    {
+      "path": "../ir"
+    },
+    {
+      "path": "../shapes"
+    }
+  ]
+}

@@ -1,0 +1,56 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "lib": [
+      "ES2024",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "outDir": "dist-types",
+    "resolveJsonModule": true,
+    "rootDir": ".",
+    "types": [
+      "node",
+      "react",
+      "react-dom",
+      "vite/client"
+    ]
+  },
+  "include": [
+    "benchmark/**/*.ts",
+    "benchmark/**/*.tsx",
+    "src/**/*.ts",
+    "src/**/*.tsx",
+    "test/**/*.ts",
+    "test/**/*.tsx"
+  ],
+  "references": [
+    {
+      "path": "../agent"
+    },
+    {
+      "path": "../connectors"
+    },
+    {
+      "path": "../derive"
+    },
+    {
+      "path": "../interact"
+    },
+    {
+      "path": "../ir"
+    },
+    {
+      "path": "../ops"
+    },
+    {
+      "path": "../render"
+    },
+    {
+      "path": "../scene"
+    }
+  ]
+}

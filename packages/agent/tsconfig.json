@@ -1,0 +1,31 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "."
+  },
+  "include": [
+    "src/**/*.ts",
+    "test/**/*.ts"
+  ],
+  "references": [
+    {
+      "path": "../derive"
+    },
+    {
+      "path": "../ir"
+    },
+    {
+      "path": "../ops"
+    },
+    {
+      "path": "../persistence"
+    },
+    {
+      "path": "../scene"
+    },
+    {
+      "path": "../serialize"
+    }
+  ]
+}

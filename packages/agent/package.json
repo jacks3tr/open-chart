@@ -1,0 +1,27 @@
+{
+  "name": "@openchart/agent",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "openchart": "./src/cli.ts"
+  },
+  "exports": {
+    ".": "./src/cli.ts",
+    "./live": "./src/live.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.0.0",
+    "@openchart/derive": "0.0.0",
+    "@openchart/ir": "0.0.0",
+    "@openchart/ops": "0.0.0",
+    "@openchart/persistence": "0.0.0",
+    "@openchart/scene": "0.0.0",
+    "@openchart/serialize": "0.0.0",
+    "@resvg/resvg-js": "2.6.2",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "2.0.0"
+  }
+}

@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenChart — Build Plan</title>
+<style>
+  :root{
+    --canvas:#FBFCFE; --surface:#FFFFFF; --surface-alt:#F1F4F9;
+    --stroke:#E2E8F0; --stroke-strong:#CBD5E1;
+    --text-hi:#0F172A; --text-mid:#475569; --text-lo:#94A3B8;
+    --compute:#2563EB; --storage:#7C3AED; --data:#0D9488;
+    --network:#64748B; --identity:#B45309; --external:#94A3B8;
+    --danger:#DC2626; --success:#059669;
+    --e1:0 1px 2px rgba(15,23,42,.06),0 1px 3px rgba(15,23,42,.04);
+    --e2:0 4px 12px rgba(15,23,42,.08),0 1px 3px rgba(15,23,42,.06);
+    --font:Inter,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+    --mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--canvas);color:var(--text-hi);font-family:var(--font);
+       -webkit-font-smoothing:antialiased;line-height:1.6}
+  .wrap{max-width:1080px;margin:0 auto;padding:64px 32px 96px}
+
+  /* ---------- hero ---------- */
+  .eyebrow{font-size:11px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;
+           color:var(--text-lo);margin-bottom:16px}
+  h1{font-size:46px;font-weight:600;letter-spacing:-.03em;line-height:1.1;margin-bottom:20px}
+  h1 .accent{color:var(--compute)}
+  .lede{font-size:18px;color:var(--text-mid);max-width:760px;margin-bottom:12px}
+  .lede strong{color:var(--text-hi);font-weight:600}
+  .rule{height:1px;background:var(--stroke);margin:56px 0}
+
+  /* ---------- sections ---------- */
+  section{margin-bottom:64px}
+  .sec-num{font-size:11px;font-weight:600;letter-spacing:.14em;color:var(--text-lo);
+           text-transform:uppercase;margin-bottom:10px}
+  h2{font-size:26px;font-weight:600;letter-spacing:-.02em;margin-bottom:10px}
+  .sub{font-size:15px;color:var(--text-mid);max-width:780px;margin-bottom:28px}
+
+  .card{background:var(--surface);border:1px solid var(--stroke);border-radius:12px;
+        padding:28px;box-shadow:var(--e1)}
+  .card + .card{margin-top:16px}
+
+  /* ---------- architecture svg ---------- */
+  svg{display:block;width:100%;height:auto}
+  .n-box{fill:#FFFFFF;stroke:var(--stroke);stroke-width:1}
+  .n-title{font:600 13px var(--font);fill:var(--text-hi)}
+  .n-body{font:400 11.5px var(--font);fill:var(--text-mid)}
+  .n-tag{font:600 9.5px var(--font);letter-spacing:.08em;text-transform:uppercase;fill:var(--text-lo)}
+  .flow{stroke:var(--stroke-strong);stroke-width:1.5;fill:none}
+  .flow-hi{stroke:var(--compute);stroke-width:1.5;fill:none}
+  .chip{font:600 9.5px var(--mono);letter-spacing:.06em;text-transform:uppercase}
+
+  /* ---------- layer stack ---------- */
+  .stack{display:flex;flex-direction:column;gap:10px}
+  .layer{display:grid;grid-template-columns:64px 1fr 200px;gap:20px;align-items:center;
+         background:var(--surface);border:1px solid var(--stroke);border-radius:10px;
+         padding:16px 20px;box-shadow:var(--e1)}
+  .layer .tag{font:600 10px var(--mono);letter-spacing:.06em;color:var(--text-lo)}
+  .layer .name{font-size:14px;font-weight:600;margin-bottom:2px}
+  .layer .desc{font-size:12.5px;color:var(--text-mid)}
+  .layer .note{font:400 11px var(--mono);color:var(--text-lo);text-align:right}
+  .layer.t0{border-left:3px solid var(--compute)}
+  .layer.t1{border-left:3px solid var(--storage)}
+  .layer.t2{border-left:3px solid var(--text-lo)}
+
+  /* ---------- palette ---------- */
+  .pal{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+  .sw{border:1px solid var(--stroke);border-radius:10px;overflow:hidden;background:var(--surface);
+      box-shadow:var(--e1)}
+  .sw .fill{height:56px}
+  .sw .meta{padding:10px 12px}
+  .sw .nm{font-size:12px;font-weight:600}
+  .sw .hex{font:400 10.5px var(--mono);color:var(--text-lo);margin-top:2px}
+
+  /* ---------- typography ladder ---------- */
+  .type-row{display:grid;grid-template-columns:170px 1fr 150px;gap:20px;align-items:baseline;
+            padding:14px 0;border-bottom:1px solid var(--stroke)}
+  .type-row:last-child{border-bottom:none}
+  .type-row .role{font-size:12px;font-weight:600;color:var(--text-mid)}
+  .type-row .spec{font:400 11px var(--mono);color:var(--text-lo)}
+
+  /* ---------- two-column ---------- */
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:820px){.cols{grid-template-columns:1fr}.layer{grid-template-columns:48px 1fr}
+    .layer .note{display:none}h1{font-size:34px}}
+
+  ul{margin:0;padding-left:18px}
+  li{font-size:13.5px;color:var(--text-mid);margin-bottom:7px}
+  li strong{color:var(--text-hi);font-weight:600}
+  code{font:400 12px var(--mono);background:var(--surface-alt);padding:1px 5px;
+       border-radius:4px;color:var(--text-hi)}
+
+  /* ---------- roadmap ---------- */
+  .phase{display:grid;grid-template-columns:52px 1fr;gap:20px;padding-bottom:22px;position:relative}
+  .phase:not(:last-child)::before{content:"";position:absolute;left:25px;top:40px;bottom:0;
+       width:1px;background:var(--stroke)}
+  .dot{width:52px;height:52px;border-radius:999px;background:var(--surface);
+       border:1.5px solid var(--stroke-strong);display:flex;align-items:center;justify-content:center;
+       font:600 13px var(--mono);color:var(--text-mid);position:relative;z-index:1}
+  .phase.hl .dot{border-color:var(--compute);color:var(--compute);
+       box-shadow:0 0 0 4px rgba(37,99,235,.10)}
+  .phase .t{font-size:15px;font-weight:600;margin-bottom:3px}
+  .phase .wk{font:400 11px var(--mono);color:var(--text-lo);margin-bottom:8px}
+  .phase .d{font-size:13px;color:var(--text-mid)}
+  .phase .exit{margin-top:8px;font-size:12.5px;color:var(--text-mid);
+       border-left:2px solid var(--success);padding-left:12px}
+  .phase .exit b{color:var(--text-hi)}
+
+  /* ---------- decisions ---------- */
+  .dec{display:grid;grid-template-columns:1fr;gap:0}
+  .dec-item{padding:18px 0;border-bottom:1px solid var(--stroke)}
+  .dec-item:last-child{border-bottom:none}
+  .dec-item .h{font-size:14px;font-weight:600;margin-bottom:4px}
+  .dec-item .b{font-size:13px;color:var(--text-mid)}
+
+  footer{margin-top:72px;padding-top:28px;border-top:1px solid var(--stroke);
+          font-size:12px;color:var(--text-lo);display:flex;justify-content:space-between;gap:16px;
+          flex-wrap:wrap}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ============ HERO ============ -->
+  <div class="eyebrow">Build Plan · v1.0 · 29 August 2026</div>
+  <h1>Ar<span class="accent">c</span>line</h1>
+  <p class="lede">
+    A local, single-user, AAA-quality diagram editor for <strong>integration</strong>,
+    <strong>architecture</strong>, and <strong>system-connectivity</strong> diagrams.
+  </p>
+  <p class="lede">
+    The thesis: <strong>the diagram is data, the canvas is a view, and the agent is a peer author.</strong>
+    Every mutation — a mouse drag, a keyboard shortcut, an MCP tool call, a CLI batch job — travels
+    through one op engine into one canonical IR. Dual editability is not a feature to build;
+    it is what you get when there is only one way to change the document.
+  </p>
+
+  <div class="rule"></div>
+
+  <!-- ============ ARCHITECTURE ============ -->
+  <section>
+    <div class="sec-num">01 · The spine</div>
+    <h2>One source of truth, one mutation path</h2>
+    <p class="sub">
+      The canonical IR holds semantics only — never geometry. Four independent origins emit ops into a
+      single engine. Derived layers are a disposable cache. The resolved scene feeds three consumers,
+      so the screen and the export cannot drift apart.
+    </p>
+
+    <div class="card">
+      <svg viewBox="0 0 1000 640" role="img" aria-label="OpenChart architecture diagram">
+        <defs>
+          <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="#CBD5E1"/>
+          </marker>
+          <marker id="arwB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="#2563EB"/>
+          </marker>
+        </defs>
+
+        <!-- CANONICAL IR -->
+        <rect x="300" y="24" width="400" height="76" rx="12" fill="#EFF4FF" stroke="#2563EB" stroke-width="1.5"/>
+        <text class="n-title" x="500" y="53" text-anchor="middle">CANONICAL IR</text>
+        <text class="n-body" x="500" y="72" text-anchor="middle">nodes · ports · edges · groups · styles</text>
+        <text class="n-tag"  x="500" y="89" text-anchor="middle">semantics only · no geometry</text>
+
+        <!-- origins row -->
+        <g>
+          <rect x="40"  y="180" width="150" height="60" rx="10" class="n-box"/>
+          <text class="n-title" x="115" y="204" text-anchor="middle">GUI canvas</text>
+          <text class="n-tag"  x="115" y="222" text-anchor="middle">drag · keyboard</text>
+
+          <rect x="215" y="180" width="150" height="60" rx="10" class="n-box"/>
+          <text class="n-title" x="290" y="204" text-anchor="middle">MCP server</text>
+          <text class="n-tag"  x="290" y="222" text-anchor="middle">127.0.0.1:4777</text>
+
+          <rect x="635" y="180" width="150" height="60" rx="10" class="n-box"/>
+          <text class="n-title" x="710" y="204" text-anchor="middle">CLI · headless</text>
+          <text class="n-tag"  x="710" y="222" text-anchor="middle">CI · batch</text>
+
+          <rect x="810" y="180" width="150" height="60" rx="10" class="n-box"/>
+          <text class="n-title" x="885" y="204" text-anchor="middle">DSL import</text>
+          <text class="n-tag"  x="885" y="222" text-anchor="middle">d2 · mermaid</text>
+        </g>
+
+        <!-- origin -> engine -->
+        <path class="flow" marker-end="url(#arw)" d="M115,180 V148 H500 V100"/>
+        <path class="flow" marker-end="url(#arw)" d="M290,180 V148 H500 V100"/>
+        <path class="flow" marker-end="url(#arw)" d="M710,180 V148 H500 V100"/>
+        <path class="flow" marker-end="url(#arw)" d="M885,180 V148 H500 V100"/>
+        <text class="n-tag" x="500" y="140" text-anchor="middle">ops (JSON · invertible · coalescable)</text>
+
+        <!-- OP ENGINE -->
+        <rect x="300" y="248" width="400" height="84" rx="12" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+        <text class="n-title" x="500" y="278" text-anchor="middle">OP ENGINE</text>
+        <text class="n-body" x="500" y="298" text-anchor="middle">validate → apply → derive → notify</text>
+        <text class="n-tag"  x="500" y="317" text-anchor="middle">one undo entry per transaction · journaled</text>
+        <path class="flow-hi" marker-end="url(#arwB)" d="M500,100 V248"/>
+        <path class="flow-hi" marker-end="url(#arwB)" d="M500,332 V382"/>
+
+        <!-- journal side note -->
+        <rect x="740" y="258" width="220" height="64" rx="10" fill="#F1F4F9" stroke="#E2E8F0"/>
+        <text class="n-body" x="756" y="282">.openchart.journal.ndjson</text>
+        <text class="n-tag"  x="756" y="300">undo · time travel · audit</text>
+
+        <!-- DERIVED -->
+        <rect x="230" y="382" width="540" height="84" rx="12" fill="#F7F5FF" stroke="#7C3AED" stroke-width="1.5"/>
+        <text class="n-title" x="500" y="412" text-anchor="middle">DERIVED LAYERS · disposable cache</text>
+        <text class="n-body" x="500" y="432" text-anchor="middle">layout · routing · text flow · conditional formatting</text>
+        <text class="n-tag"  x="500" y="451" text-anchor="middle">keyed by content hash · validated on load · never trusted</text>
+
+        <!-- SCENE -->
+        <path class="flow" marker-end="url(#arw)" d="M500,466 V512"/>
+        <rect x="300" y="512" width="400" height="60" rx="10" fill="#FFFFFF" stroke="#CBD5E1" stroke-width="1.5"/>
+        <text class="n-title" x="500" y="537" text-anchor="middle">SceneDescription</text>
+        <text class="n-tag"  x="500" y="556" text-anchor="middle">resolved geometry · z-ordered</text>
+
+        <!-- outputs -->
+        <path class="flow" marker-end="url(#arw)" d="M400,572 V592 H180 V612"/>
+        <path class="flow" marker-end="url(#arw)" d="M500,572 V612"/>
+        <path class="flow" marker-end="url(#arw)" d="M600,572 V592 H820 V612"/>
+        <g>
+          <rect x="70"  y="612" width="220" height="0" fill="none"/>
+          <text class="n-body" x="180" y="628" text-anchor="middle">Canvas2D painter</text>
+          <text class="n-body" x="500" y="628" text-anchor="middle">SVG serializer</text>
+          <text class="n-body" x="820" y="628" text-anchor="middle">PNG · PDF · PPTX</text>
+        </g>
+        <text class="n-tag" x="500" y="600" text-anchor="middle" opacity="0">.</text>
+      </svg>
+    </div>
+  </section>
+
+  <!-- ============ LAYER STACK ============ -->
+  <section>
+    <div class="sec-num">02 · Three tiers</div>
+    <h2>Strict separation of truth, cache, and session</h2>
+    <p class="sub">
+      The rule that makes everything else work: geometry is never stored in the canonical layer.
+      A corrupt derived cache must be unrecoverable-but-harmless, never a corrupted document.
+    </p>
+    <div class="stack">
+      <div class="layer t0">
+        <div class="tag">T0</div>
+        <div><div class="name">Canonical IR</div>
+             <div class="desc">Semantics, styles, tokens, provenance. The only thing agents read and write.</div></div>
+        <div class="note">committed · diffable</div>
+      </div>
+      <div class="layer t1">
+        <div class="tag">T1</div>
+        <div><div class="name">Derived layers</div>
+             <div class="desc">Positions, sizes, routes, text layout. Recomputable from T0, cached with a version hash.</div></div>
+        <div class="note">cached · disposable</div>
+      </div>
+      <div class="layer t2">
+        <div class="tag">T2</div>
+        <div><div class="name">Ephemeral session</div>
+             <div class="desc">Camera, selection, hover, panel state. Kept in a separate file so the document stays git-clean.</div></div>
+        <div class="note">session · gitignored</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ IDENTITY ============ -->
+  <section>
+    <div class="sec-num">03 · Identity</div>
+    <h2>Two identities per entity</h2>
+    <p class="sub">
+      The reason an agent can work with this document at all. UUIDs are unguessable; bare names are unstable.
+      So every entity carries both.
+    </p>
+    <div class="cols">
+      <div class="card">
+        <div class="eyebrow" style="margin-bottom:10px">id · address</div>
+        <div style="font:400 12.5px var(--mono);color:var(--text-hi);margin-bottom:12px;word-break:break-all">
+          aws.vpc.prod.subnet-a.api-gw.out
+        </div>
+        <ul>
+          <li>Hierarchical, lowercase, dot-separated</li>
+          <li><strong>Mutable</strong> — renaming rewrites all references</li>
+          <li><strong>Agent-addressable: it can be guessed</strong></li>
+          <li>Surfaced in every text projection</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="eyebrow" style="margin-bottom:10px">uid · identity</div>
+        <div style="font:400 12.5px var(--mono);color:var(--text-hi);margin-bottom:12px">u_01J9XK4Q7Z…</div>
+        <ul>
+          <li>ULID — sortable, collision-free</li>
+          <li><strong>Immutable</strong> — never changes, never renamed</li>
+          <li>The diff/merge key across renames</li>
+          <li>Never surfaced in text projections</li>
+        </ul>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <div style="font-size:13.5px;color:var(--text-mid)">
+        <strong style="color:var(--text-hi)">Invariant enforced by the op engine:</strong>
+        <code>uid</code> is identity, <code>id</code> is address. A <code>rename_node</code> op rewrites
+        <code>id</code> in place, rewrites every reference — <code>parent</code>, <code>children</code>,
+        port references in edges, layout overrides — and leaves every <code>uid</code> untouched.
+      </div>
+    </div>
+  </section>
+
+  <div class="rule"></div>
+
+  <!-- ============ DESIGN SYSTEM ============ -->
+  <section>
+    <div class="sec-num">04 · Design system</div>
+    <h2>Defaults beautiful enough to not need taste</h2>
+    <p class="sub">
+      Lucid gives users a format panel and gets out of the way; the predictable result is the
+      "default Lucidchart look." The fix is not more controls — it is a token system whose defaults
+      are already correct, and which an agent can restyle wholesale with one tool call.
+    </p>
+
+    <div style="font-size:12px;font-weight:600;color:var(--text-lo);letter-spacing:.1em;
+                text-transform:uppercase;margin-bottom:12px">Semantic tiers</div>
+    <div class="pal" style="margin-bottom:32px">
+      <div class="sw"><div class="fill" style="background:#2563EB"></div>
+        <div class="meta"><div class="nm">compute</div><div class="hex">#2563EB</div></div></div>
+      <div class="sw"><div class="fill" style="background:#7C3AED"></div>
+        <div class="meta"><div class="nm">storage</div><div class="hex">#7C3AED</div></div></div>
+      <div class="sw"><div class="fill" style="background:#0D9488"></div>
+        <div class="meta"><div class="nm">data</div><div class="hex">#0D9488</div></div></div>
+      <div class="sw"><div class="fill" style="background:#64748B"></div>
+        <div class="meta"><div class="nm">network</div><div class="hex">#64748B</div></div></div>
+      <div class="sw"><div class="fill" style="background:#B45309"></div>
+        <div class="meta"><div class="nm">identity</div><div class="hex">#B45309</div></div></div>
+      <div class="sw"><div class="fill" style="background:#94A3B8"></div>
+        <div class="meta"><div class="nm">external</div><div class="hex">#94A3B8</div></div></div>
+    </div>
+
+    <div style="font-size:12px;font-weight:600;color:var(--text-lo);letter-spacing:.1em;
+                text-transform:uppercase;margin-bottom:12px">Surfaces</div>
+    <div class="pal" style="margin-bottom:32px">
+      <div class="sw"><div class="fill" style="background:#FBFCFE;border-bottom:1px solid #E2E8F0"></div>
+        <div class="meta"><div class="nm">canvas</div><div class="hex">#FBFCFE · never pure white</div></div></div>
+      <div class="sw"><div class="fill" style="background:#FFFFFF;border-bottom:1px solid #E2E8F0"></div>
+        <div class="meta"><div class="nm">surface</div><div class="hex">#FFFFFF</div></div></div>
+      <div class="sw"><div class="fill" style="background:#F1F4F9"></div>
+        <div class="meta"><div class="nm">surface-alt</div><div class="hex">#F1F4F9</div></div></div>
+      <div class="sw"><div class="fill" style="background:#E2E8F0"></div>
+        <div class="meta"><div class="nm">stroke</div><div class="hex">#E2E8F0</div></div></div>
+      <div class="sw"><div class="fill" style="background:#0F172A"></div>
+        <div class="meta"><div class="nm">text-hi</div><div class="hex">#0F172A</div></div></div>
+      <div class="sw"><div class="fill" style="background:#475569"></div>
+        <div class="meta"><div class="nm">text-mid</div><div class="hex">#475569</div></div></div>
+    </div>
+
+    <div style="font-size:12px;font-weight:600;color:var(--text-lo);letter-spacing:.1em;
+                text-transform:uppercase;margin-bottom:12px">Typography ladder</div>
+    <div class="card" style="margin-bottom:32px">
+      <div class="type-row">
+        <div class="role">Diagram title</div>
+        <div style="font-size:24px;font-weight:600;letter-spacing:-.02em">Checkout Service</div>
+        <div class="spec">24 / 600 / −0.02em</div>
+      </div>
+      <div class="type-row">
+        <div class="role">Container label</div>
+        <div style="font-size:13px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:#475569">Production VPC</div>
+        <div class="spec">13 / 600 / +0.04em · CAPS</div>
+      </div>
+      <div class="type-row">
+        <div class="role">Node label</div>
+        <div style="font-size:12px;font-weight:500">API Gateway</div>
+        <div class="spec">12 / 500 / 0</div>
+      </div>
+      <div class="type-row">
+        <div class="role">Sub-label</div>
+        <div style="font-size:11px;color:#94A3B8">REST · us-east-1</div>
+        <div class="spec">11 / 400 / text-lo</div>
+      </div>
+      <div class="type-row">
+        <div class="role">Protocol chip</div>
+        <div><span style="display:inline-block;background:rgba(37,99,235,.12);color:#2563EB;
+              border:1px solid rgba(37,99,235,.25);border-radius:999px;padding:0 8px;height:18px;
+              line-height:18px;font:600 10px var(--mono);letter-spacing:.06em">HTTPS</span></div>
+        <div class="spec">10 / 600 / +0.06em · mono</div>
+      </div>
+    </div>
+
+    <div class="cols">
+      <div class="card">
+        <div class="eyebrow" style="margin-bottom:12px">Rules, enforced</div>
+        <ul>
+          <li><strong>Shapes get a 10–14% tint</strong>, never full saturation. Full-saturation fills on large shapes are the clearest marker of an amateur diagram.</li>
+          <li><strong>Icons and logos stay full colour</strong> — they carry the recognition.</li>
+          <li><strong>Gradients only on page backgrounds and container headers</strong>, max 2 stops, ≤8° hue shift.</li>
+          <li><strong>Category = colour + icon + label.</strong> Never colour alone.</li>
+          <li><strong>Max 6 semantic colours visible.</strong> The palette refuses a 7th and suggests a grouping.</li>
+          <li><strong>Two elevation tiers only.</strong> Never a coloured shadow.</li>
+          <li><strong>Radius: 8 nodes / 12 containers / 999 chips.</strong> No exceptions.</li>
+          <li><strong>No glassmorphism</strong> — it breaks PNG/PDF export and destroys contrast.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="eyebrow" style="margin-bottom:12px">Connectors &amp; spacing</div>
+        <ul>
+          <li><strong>1.5px uniform, #94A3B8, no taper.</strong></li>
+          <li>Orthogonal with <strong>8px corner radius</strong>; ~12px perpendicular jetty off each anchor.</li>
+          <li>Arrowheads small and solid, ~6px. <strong>Always directional — never double-headed.</strong></li>
+          <li><strong>Dashed = async, solid = sync</strong>, and the legend says so.</li>
+          <li>Chips sit on an opaque canvas-coloured rect so the line never runs through the text.</li>
+          <li><strong>8px base grid</strong>; 24px minimum gutter between siblings; 32px container padding; 16px icon-to-label gap.</li>
+          <li><strong>Never mix icon stroke weights</strong> — Lucide/Feather <em>or</em> Phosphor, not both.</li>
+          <li>Hard floor of <strong>10px</strong> type. Nothing smaller, ever.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ TARGET AESTHETIC ============ -->
+  <section>
+    <div class="sec-num">05 · The bar</div>
+    <h2>What "AAA" actually looks like</h2>
+    <p class="sub">
+      Rendered with the tokens above. This is the target output for every integration diagram —
+      and it is what the Beauty Pass produces deterministically from a correctly-wired but ugly graph.
+    </p>
+    <div class="card">
+      <svg viewBox="0 0 1000 560" role="img" aria-label="Sample integration diagram in the target style">
+        <defs>
+          <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="#94A3B8"/>
+          </marker>
+        </defs>
+
+        <!-- title block -->
+        <text style="font:600 24px var(--font);letter-spacing:-.02em" x="30" y="52" fill="#0F172A">Checkout Service — Integration Map</text>
+        <text style="font:400 11px var(--mono)" x="30" y="74" fill="#94A3B8">v1.2 · 2026-08-29 · platform</text>
+
+        <!-- container -->
+        <rect x="190" y="140" width="620" height="300" rx="12"
+              fill="rgba(100,116,139,0.06)" stroke="#94A3B8" stroke-width="2" stroke-dasharray="6 3"/>
+        <text style="font:600 13px var(--font);letter-spacing:.04em" x="206" y="166" fill="#475569">PRODUCTION VPC · US-EAST-1</text>
+
+        <!-- connectors (drawn under nodes) -->
+        <g stroke="#94A3B8" stroke-width="1.5" fill="none" marker-end="url(#a2)">
+          <path d="M170,234 H222"/>
+          <path d="M370,234 H422"/>
+          <path d="M570,234 H622"/>
+          <path d="M500,278 V302"/>
+          <path d="M570,354 H622"/>
+          <path d="M545,278 V420 H892 V400"/>
+        </g>
+
+        <!-- protocol chips -->
+        <g>
+          <rect x="176" y="223" width="40" height="18" rx="9" fill="#FBFCFE"/>
+          <rect x="176" y="223" width="40" height="18" rx="9" fill="rgba(37,99,235,.12)"
+                stroke="rgba(37,99,235,.25)"/>
+          <text class="chip" x="196" y="235" text-anchor="middle" fill="#2563EB">HTTPS</text>
+
+          <rect x="374" y="223" width="44" height="18" rx="9" fill="rgba(37,99,235,.12)"
+                stroke="rgba(37,99,235,.25)"/>
+          <text class="chip" x="396" y="235" text-anchor="middle" fill="#2563EB">gRPC</text>
+
+          <rect x="574" y="223" width="44" height="18" rx="9" fill="rgba(180,83,9,.12)"
+                stroke="rgba(180,83,9,.25)"/>
+          <text class="chip" x="596" y="235" text-anchor="middle" fill="#B45309">KAFKA</text>
+
+          <rect x="512" y="281" width="44" height="18" rx="9" fill="rgba(37,99,235,.12)"
+                stroke="rgba(37,99,235,.25)"/>
+          <text class="chip" x="534" y="293" text-anchor="middle" fill="#2563EB">gRPC</text>
+
+          <rect x="574" y="343" width="40" height="18" rx="9" fill="rgba(13,148,136,.12)"
+                stroke="rgba(13,148,136,.25)"/>
+          <text class="chip" x="594" y="355" text-anchor="middle" fill="#0D9488">SQL</text>
+
+          <rect x="700" y="409" width="40" height="18" rx="9" fill="rgba(37,99,235,.12)"
+                stroke="rgba(37,99,235,.25)"/>
+          <text class="chip" x="720" y="421" text-anchor="middle" fill="#2563EB">HTTPS</text>
+        </g>
+
+        <!-- node helper -->
+        <!-- (nodes drawn as explicit groups) -->
+
+        <!-- Web Client (external) -->
+        <g>
+          <rect x="30" y="190" width="140" height="88" rx="8" fill="#F1F4F9" stroke="#CBD5E1"/>
+          <rect x="88" y="208" width="24" height="24" rx="6" fill="#94A3B8" opacity=".18"/>
+          <circle cx="100" cy="220" r="5" fill="#94A3B8"/>
+          <text style="font:500 12px var(--font)" x="100" y="252" text-anchor="middle" fill="#0F172A">Web Client</text>
+          <text style="font:400 11px var(--font)" x="100" y="268" text-anchor="middle" fill="#94A3B8">browser · SPA</text>
+        </g>
+
+        <!-- API Gateway -->
+        <g>
+          <rect x="230" y="190" width="140" height="88" rx="8" fill="#FFFFFF" stroke="#E2E8F0"/>
+          <rect x="288" y="208" width="24" height="24" rx="6" fill="#2563EB" opacity=".14"/>
+          <path d="M294,220 h12 M300,214 v12" stroke="#2563EB" stroke-width="2" stroke-linecap="round"/>
+          <text style="font:500 12px var(--font)" x="300" y="252" text-anchor="middle" fill="#0F172A">API Gateway</text>
+          <text style="font:400 11px var(--font)" x="300" y="268" text-anchor="middle" fill="#94A3B8">REST · us-east-1</text>
+        </g>
+
+        <!-- Checkout Service -->
+        <g>
+          <rect x="430" y="190" width="140" height="88" rx="8" fill="#FFFFFF" stroke="#E2E8F0"/>
+          <rect x="488" y="208" width="24" height="24" rx="6" fill="#2563EB" opacity=".14"/>
+          <rect x="494" y="214" width="12" height="12" rx="3" fill="none" stroke="#2563EB" stroke-width="2"/>
+          <text style="font:500 12px var(--font)" x="500" y="252" text-anchor="middle" fill="#0F172A">Checkout Svc</text>
+          <text style="font:400 11px var(--font)" x="500" y="268" text-anchor="middle" fill="#94A3B8">Go · 3 replicas</text>
+        </g>
+
+        <!-- Kafka -->
+        <g>
+          <rect x="630" y="190" width="140" height="88" rx="8" fill="#FFFFFF" stroke="#E2E8F0"/>
+          <rect x="688" y="208" width="24" height="24" rx="6" fill="#B45309" opacity=".16"/>
+          <circle cx="700" cy="220" r="6" fill="none" stroke="#B45309" stroke-width="2"/>
+          <text style="font:500 12px var(--font)" x="700" y="252" text-anchor="middle" fill="#0F172A">Event Bus</text>
+          <text style="font:400 11px var(--font)" x="700" y="268" text-anchor="middle" fill="#94A3B8">Kafka · 3 brokers</text>
+        </g>
+
+        <!-- Ledger Service -->
+        <g>
+          <rect x="430" y="310" width="140" height="88" rx="8" fill="#FFFFFF" stroke="#E2E8F0"/>
+          <rect x="488" y="328" width="24" height="24" rx="6" fill="#2563EB" opacity=".14"/>
+          <rect x="494" y="334" width="12" height="12" rx="3" fill="none" stroke="#2563EB" stroke-width="2"/>
+          <text style="font:500 12px var(--font)" x="500" y="372" text-anchor="middle" fill="#0F172A">Ledger Svc</text>
+          <text style="font:400 11px var(--font)" x="500" y="388" text-anchor="middle" fill="#94A3B8">Rust · 2 replicas</text>
+        </g>
+
+        <!-- Postgres -->
+        <g>
+          <rect x="630" y="310" width="140" height="88" rx="8" fill="#FFFFFF" stroke="#E2E8F0"/>
+          <rect x="688" y="328" width="24" height="24" rx="6" fill="#0D9488" opacity=".16"/>
+          <ellipse cx="700" cy="214" rx="0" ry="0" fill="none"/>
+          <ellipse cx="700" cy="333" rx="7" ry="3" fill="none" stroke="#0D9488" stroke-width="2"/>
+          <path d="M693,333 v12 a7,3 0 0 0 14,0 v-12" fill="none" stroke="#0D9488" stroke-width="2"/>
+          <text style="font:500 12px var(--font)" x="700" y="372" text-anchor="middle" fill="#0F172A">Postgres</text>
+          <text style="font:400 11px var(--font)" x="700" y="388" text-anchor="middle" fill="#94A3B8">primary · rds</text>
+        </g>
+
+        <!-- Stripe (external) -->
+        <g>
+          <rect x="830" y="310" width="140" height="88" rx="8" fill="#F1F4F9" stroke="#CBD5E1"/>
+          <rect x="888" y="328" width="24" height="24" rx="6" fill="#94A3B8" opacity=".18"/>
+          <rect x="894" y="334" width="12" height="12" rx="2" fill="#94A3B8"/>
+          <text style="font:500 12px var(--font)" x="900" y="372" text-anchor="middle" fill="#0F172A">Stripe</text>
+          <text style="font:400 11px var(--font)" x="900" y="388" text-anchor="middle" fill="#94A3B8">external · PCI</text>
+        </g>
+
+        <!-- legend -->
+        <g>
+          <line x1="30" y1="474" x2="70" y2="474" stroke="#94A3B8" stroke-width="1.5"/>
+          <text style="font:400 11px var(--font)" x="80" y="478" fill="#475569">synchronous call</text>
+          <line x1="30" y1="498" x2="70" y2="498" stroke="#94A3B8" stroke-width="1.5" stroke-dasharray="5 4"/>
+          <text style="font:400 11px var(--font)" x="80" y="502" fill="#475569">asynchronous / event</text>
+          <rect x="30" y="514" width="12" height="12" rx="3" fill="#F1F4F9" stroke="#CBD5E1"/>
+          <text style="font:400 11px var(--font)" x="80" y="524" fill="#475569">external system</text>
+        </g>
+        <text style="font:600 9.5px var(--font);letter-spacing:.08em" x="30" y="456" fill="#94A3B8">LEGEND</text>
+      </svg>
+    </div>
+  </section>
+
+  <!-- ============ BEAUTY PASS ============ -->
+  <section>
+    <div class="sec-num">06 · The lever</div>
+    <h2>Beauty Pass — eleven steps, one undo entry</h2>
+    <p class="sub">
+      The single highest-leverage feature for the visual goal. Deterministic, idempotent, and
+      exposed as an MCP tool — so an agent can author a correct but ugly graph and then have the
+      app make it beautiful. Every step is an op, so the whole pass is inspectable in the journal.
+    </p>
+    <div class="card">
+      <div class="stack" style="gap:0">
+        <div class="layer" style="border-left-color:#2563EB;border-radius:0;border:none;border-bottom:1px solid var(--stroke);box-shadow:none;padding:12px 0 12px 16px">
+          <div class="tag">01</div><div class="desc"><strong>Infer semantics</strong> — tag nodes by shape/name/label → tier → semantic colour</div><div></div>
+        </div>
+        <div class="layer" style="border-left-color:#2563EB;border-radius:0;border:none;border-bottom:1px solid var(--stroke);box-shadow:none;padding:12px 0 12px 16px">
+          <div class="tag">02</div><div class="desc"><strong>Infer hierarchy</strong> — detect containment, group into containers, infer missing boundaries</div><div></div>
+        </div>
+        <div class="layer" style="border-left-color:#2563EB;border-radius:0;border:none;border-bottom:1px solid var(--stroke);box-shadow:none;padding:12px 0 12px 16px">
+          <div class="tag">03</div><div class="desc"><strong>Assign ports</strong> — per shape definition; side chosen by flow direction</div><div></div>
+        </div>
+        <div class="layer" style="border-left-color:#7C3AED;border-radius:0;border:none;border-bottom:1px solid var(--stroke);box-shadow:none;padding:12px 0 12px 16px">
+          <div class="tag">04</div><div class="desc"><strong>Auto-layout</strong> — ELK layered per container, <code>INCLUDE_CHILDREN</code>; force/radial for meshes</div><div></div>
+        </div>
+        <div class="layer" style="border-left-color:#7C3AED;border-radius:0;border:none;border-bottom:1px solid var(--stroke);box-shadow:none;padding:12px 0 12px 16px">
+          <div class="tag">05</div><div class="desc"><strong>Route</strong> — orthogonal + obstacle avoidance, crossing minimisation, line jumps</div><div></div>
+        </div>
+        <div class="layer" style="border-left-color:#7C3AED;border-radius:0;border:none;border-bottom:1px solid var(--stroke);box-shadow:none;padding:12px 0 12px 16px">
+          <div class="tag">06</div><div class="desc"><strong>Snap to grid</strong> — 8px grid, equalise sibling sizes, normalise gaps</div><div></div>
+        </div>
+        <div class="layer" style="border-left-color:#0D9488;border-radius:0;border:none;border-bottom:1px solid var(--stroke);box-shadow:none;padding:12px 0 12px 16px">
+          <div class="tag">07</div><div class="desc"><strong>Apply tokens</strong> — tints, radii, strokes, shadows, typography ladder</div><div></div>
+        </div>
+        <div class="layer" style="border-left-color:#0D9488;border-radius:0;border:none;border-bottom:1px solid var(--stroke);box-shadow:none;padding:12px 0 12px 16px">
+          <div class="tag">08</div><div class="desc"><strong>Semantics → style</strong> — sync = solid, async = dashed, protocol → chip</div><div></div>
+        </div>
+        <div class="layer" style="border-left-color:#B45309;border-radius:0;border:none;border-bottom:1px solid var(--stroke);box-shadow:none;padding:12px 0 12px 16px">
+          <div class="tag">09</div><div class="desc"><strong>Generate legend</strong> — from colours, dash patterns, and icon set in use</div><div></div>
+        </div>
+        <div class="layer" style="border-left-color:#B45309;border-radius:0;border:none;border-bottom:1px solid var(--stroke);box-shadow:none;padding:12px 0 12px 16px">
+          <div class="tag">10</div><div class="desc"><strong>Add title block</strong> — title, version, date, author, corner-anchored</div><div></div>
+        </div>
+        <div class="layer" style="border-left-color:#94A3B8;border-radius:0;border:none;box-shadow:none;padding:12px 0 12px 16px">
+          <div class="tag">11</div><div class="desc"><strong>Fit camera</strong> with margin</div><div></div>
+        </div>
+      </div>
+      <div style="margin-top:20px;padding-top:18px;border-top:1px solid var(--stroke);
+                  font-size:13px;color:var(--text-mid)">
+        <strong style="color:var(--text-hi)">Non-negotiables it enforces:</strong>
+        every icon has a label · every arrow has a direction · every colour has a legend entry ·
+        every diagram has a title block.
+        <em>Idempotence is asserted in CI: <code>pass(pass(d)) ≡ pass(d)</code>.</em>
+      </div>
+    </div>
+  </section>
+
+  <div class="rule"></div>
+
+  <!-- ============ AGENT SURFACE ============ -->
+  <section>
+    <div class="sec-num">07 · Agent surface</div>
+    <h2>Four origins, one engine</h2>
+    <p class="sub">
+      MCP over in-process loopback HTTP (the Figma desktop precedent), a headless CLI for CI,
+      and a file-watch path for agents that prefer to write files. All three compile to the same ops
+      and hit the same engine. There is no second implementation.
+    </p>
+    <div class="cols">
+      <div class="card">
+        <div class="eyebrow" style="margin-bottom:12px">Write path</div>
+        <ul>
+          <li><strong>Custom typed op array with stable ids</strong> — not RFC 6902 JSON Patch, not RFC 7386 Merge Patch. Array-index paths break under reordering and the ops aren't idempotent.</li>
+          <li><strong>Upsert-by-id makes retries safe.</strong> Agents retry; <code>create_node</code> twice is one node.</li>
+          <li><strong><code>dryRun</code> by default on first contact</strong> — returns resolved ops, a rendered diff, and diagnostics without mutating.</li>
+          <li><strong><code>baseRev</code> optimistic concurrency</strong>; on conflict, return the current rev and a minimal diff so the agent can re-read and retry.</li>
+          <li><strong>One transaction = one undo entry</strong>, so <code>undo</code> reverts exactly that agent turn.</li>
+          <li>Guardrails: 5,000-op cap, read-only mode, elicitation-gated confirmation above 25 deletes.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="eyebrow" style="margin-bottom:12px">Tool surface</div>
+        <ul>
+          <li><code>get_document_info</code> · <code>find_nodes</code> · <code>get_nodes</code></li>
+          <li><code><strong>get_screenshot</strong></code> — <em>the highest-value tool in the set.</em> An agent cannot judge beauty from JSON; render → look → refine is the loop that gets agent output to the visual bar.</li>
+          <li><code>apply_operations</code> — the one write tool</li>
+          <li><code>undo</code> · <code>redo</code> · <code>get_history</code> · <code>get_operations</code></li>
+          <li><code>apply_layout</code> · <code>apply_beauty_pass</code> · <code>set_tokens</code></li>
+          <li><code>export</code> — SVG / PNG / PDF / D2 / Mermaid</li>
+          <li>Reads carry <code>readOnlyHint</code>. Never dump the whole document: <code>find_nodes</code> is the cheap lookup, <code>subgraph</code> is capped at 50.</li>
+        </ul>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px">
+      <div class="eyebrow" style="margin-bottom:12px">Text projections</div>
+      <ul style="column-count:2;column-gap:32px">
+        <li><strong>D2</strong> — import + export. Best container + port fidelity of any diagram DSL (MPL-2.0).</li>
+        <li><strong>Mermaid</strong> — export (+ limited import). Ubiquitous; loses ports and absolute positions.</li>
+        <li><strong>Structurizr DSL</strong> — export. C4-native.</li>
+        <li><strong>ELK JSON</strong> — internal handoff to <code>elkjs</code>.</li>
+        <li><strong>Draw.io / Excalidraw</strong> — one-way ingest; keep geometry, lose semantics.</li>
+        <li><strong>Round-trip law:</strong> <code>parse(emit_d2(ir)) ≡ ir</code>, asserted as a property test.</li>
+      </ul>
+    </div>
+  </section>
+
+  <!-- ============ RENDERING ============ -->
+  <section>
+    <div class="sec-num">08 · Rendering</div>
+    <h2>Canvas2D, three layers, baked effects</h2>
+    <p class="sub">
+      Following Lucid's own published findings: they flattened onto a single canvas with dirty-rect
+      rendering in 2015, and moved selection handles to a <em>second</em> canvas because DOM overlays
+      lead or trail the canvas by one frame in Firefox and Safari.
+    </p>
+    <div class="cols">
+      <div class="card">
+        <div class="eyebrow" style="margin-bottom:12px">Three canvases</div>
+        <ul>
+          <li><strong><code>#bg</code></strong> — page, grid, static container fills. Dirty rect.</li>
+          <li><strong><code>#main</code></strong> — shapes, connectors, text. Dirty rect from an rbush query — Lucid measured <strong>&gt;1,000× speedup</strong> from this exact design.</li>
+          <li><strong><code>#overlay</code></strong> — handles, guides, marquee, readouts. Full clear and redraw every frame.</li>
+          <li>DOM is used for exactly three things: app chrome, context menus, and <strong>one</strong> text-editing surface.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <div class="eyebrow" style="margin-bottom:12px">Chrome sprite cache</div>
+        <ul>
+          <li>Each shape's chrome (shadow + border + fill + radius) is rendered once into an offscreen canvas, keyed by <code>hash(shapeKind ‖ sizeBucket ‖ styleHash ‖ zoomBucket ‖ dpr)</code>.</li>
+          <li><strong>Shadows cost nothing at draw time</strong> — they're baked, so <code>shadowBlur</code>'s per-draw cost disappears.</li>
+          <li><strong>Identical pixels on every platform</strong>, because no platform filter is ever used.</li>
+          <li>Architecture diagrams are enormously repetitive — 100 identical EC2 icons become one cached sprite.</li>
+          <li>LRU-bounded at 256 MB. One-off shapes fall back to direct draw.</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ ROADMAP ============ -->
+  <section>
+    <div class="sec-num">09 · Roadmap</div>
+    <h2>22 weeks, eight phases</h2>
+    <p class="sub">No phase begins before the previous one's exit criterion passes.</p>
+
+    <div class="phase">
+      <div class="dot">0</div>
+      <div><div class="t">Foundations</div><div class="wk">2 weeks · headless core</div>
+        <div class="d">IR schema v1 + validator. Op engine with apply/invert/coalesce. Atomic JSON persistence, journal, headless CLI.</div>
+        <div class="exit"><b>Exit:</b> a 50-node document round-trips through <code>openchart apply</code>; the round-trip property test passes; undo restores exactly.</div>
+      </div>
+    </div>
+    <div class="phase">
+      <div class="dot">1</div>
+      <div><div class="t">Renderer</div><div class="wk">3 weeks · canvas</div>
+        <div class="d">Three canvas layers, camera, culling, dirty rects via rbush, chrome sprite cache, LOD, text raster cache, stats overlay.</div>
+        <div class="exit"><b>Exit:</b> 10,000 generated shapes pan and zoom at 60 fps; screen matches SVG export within perceptual tolerance.</div>
+      </div>
+    </div>
+    <div class="phase">
+      <div class="dot">2</div>
+      <div><div class="t">Shapes &amp; libraries</div><div class="wk">2 weeks</div>
+        <div class="d">Shape runtime (geometry, bounds, anchors, clipping, textareas, controls). Six libraries, vendor pack installer, containers with magnetize and auto-grow.</div>
+        <div class="exit"><b>Exit:</b> 1,000 shapes from 6 libraries render correctly at all zoom levels; containers nest and magnetize.</div>
+      </div>
+    </div>
+    <div class="phase">
+      <div class="dot">3</div>
+      <div><div class="t">Interaction</div><div class="wk">3 weeks</div>
+        <div class="d">Selection, transform, snapping and smart guides with Lucid's dotted/solid semantics, full keyboard map, pages/layers/groups, text editing, clipboard, format painter.</div>
+        <div class="exit"><b>Exit:</b> every shortcut works; a 200-shape diagram can be built end-to-end without touching the mouse for styling.</div>
+      </div>
+    </div>
+    <div class="phase hl">
+      <div class="dot">4</div>
+      <div><div class="t">Connectors</div><div class="wk">3 weeks · the hard part</div>
+        <div class="d">Anchors and ports. O(1) fast router with jetties and rounded corners. Curved via centripetal Catmull-Rom. Line jumps. Protocol chips. libavoid WASM worker for obstacle avoidance.</div>
+        <div class="exit"><b>Exit:</b> 1,000 connectors reroute at 60 fps during drag; the obstacle-avoiding router produces zero shape-overlapping segments on the test corpus.</div>
+      </div>
+    </div>
+    <div class="phase hl">
+      <div class="dot">5</div>
+      <div><div class="t">Layout, tokens, Beauty Pass</div><div class="wk">3 weeks · the visual milestone</div>
+        <div class="d">ELK worker and layout adapter. Pinned overrides. Token system with six presets. Dependency-tracked incremental conditional formatting. The eleven-step Beauty Pass. Legend and title blocks.</div>
+        <div class="exit"><b>Exit:</b> Beauty Pass on 20 deliberately-ugly seeds scores ≥4/5 in blind human review; idempotence passes; 1,000 rules evaluate incrementally in &lt;16 ms.</div>
+      </div>
+    </div>
+    <div class="phase hl">
+      <div class="dot">6</div>
+      <div><div class="t">Agent surface</div><div class="wk">2 weeks · the peer-author milestone</div>
+        <div class="d">MCP server (loopback HTTP + headless stdio), full tool surface including <code>get_screenshot</code>, CLI parity, D2/Mermaid round-trip, file-watch mode, guardrails.</div>
+        <div class="exit"><b>Exit:</b> an external agent authors a 30-node integration diagram over MCP, self-corrects via screenshot, and the result passes golden-file review.</div>
+      </div>
+    </div>
+    <div class="phase">
+      <div class="dot">7</div>
+      <div><div class="t">Export &amp; polish</div><div class="wk">2 weeks</div>
+        <div class="d">SVG/PNG/PDF/PPTX exporters, print, preferences, accessibility pass, first-run experience and templates.</div>
+        <div class="exit"><b>Exit:</b> every exporter matches the on-screen render within tolerance; keyboard-only walkthrough passes.</div>
+      </div>
+    </div>
+    <div class="phase">
+      <div class="dot">8</div>
+      <div><div class="t">Performance &amp; hardening</div><div class="wk">2 weeks</div>
+        <div class="d">CI benchmark harness with budget gates, profiling, crash recovery, snapshot rotation, corrupted-file repair, full fuzz suite.</div>
+        <div class="exit"><b>Exit:</b> every budget met with 20% headroom; 10⁶ random op sequences with zero corruption or partial applies.</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ DECISIONS ============ -->
+  <section>
+    <div class="sec-num">10 · In one page</div>
+    <h2>The five decisions this plan is really making</h2>
+    <div class="card">
+      <div class="dec">
+        <div class="dec-item">
+          <div class="h">1 · Canvas2D, not SVG, not WebGL</div>
+          <div class="b">Tauri ships three different WebViews with three SVG filter implementations and three font rasterizers, and WebGL on Linux can silently fall back to software with the renderer string masked. Pixel identity across platforms matters more than any other property — so every effect is baked into cached bitmaps rather than expressed as a filter.</div>
+        </div>
+        <div class="dec-item">
+          <div class="h">2 · Chrome sprite cache</div>
+          <div class="b">Shadows and gradients cost zero at draw time, and 10,000 shapes collapse into a few hundred <code>drawImage</code> calls. This is the primary performance lever and it is built in Phase 1, not deferred.</div>
+        </div>
+        <div class="dec-item">
+          <div class="h">3 · Ops compile to Immer patches</div>
+          <div class="b">Agents write semantic ops; undo is derived, exact, and free. <strong>No hand-written <code>invert()</code> anywhere in the codebase</strong> — they are the single largest source of undo bugs in editors of this class, because every new op silently needs a correct twin.</div>
+        </div>
+        <div class="dec-item">
+          <div class="h">4 · Identity-keyed layout overrides</div>
+          <div class="b">The only mechanism that reconciles auto-layout with human intent without fighting. Absolute pins (Graphviz <code>pos</code>, D2 <code>top|left</code>) are a trap: a re-layout either silently ignores them or fights them.</div>
+        </div>
+        <div class="dec-item">
+          <div class="h">5 · One op engine, four origins</div>
+          <div class="b">GUI, MCP, CLI, and DSL are the same code path, validated by the same code, journaled in the same stream, undone by the same keystroke. Dual editability is not a feature to build — it's what you get when there is only one way to change the document.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div>OpenChart build plan · v1.0 · 29 August 2026</div>
+    <div>Companion: OPENCHART_PLAN.md — 23 sections, full schema, op spec, and source index</div>
+  </footer>
+</div>
+</body>
+</html>

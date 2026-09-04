@@ -1,0 +1,13 @@
+{
+  "name": "@openchart/interact",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@openchart/ir": "0.0.0",
+    "@openchart/ops": "0.0.0"
+  }
+}

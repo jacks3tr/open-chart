@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <title>OpenChart</title>
+  <rect width="1024" height="1024" rx="224" fill="#2563eb"/>
+  <g fill="none" stroke="#ffffff" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M326 330h218c86 0 86 182 172 182h20M326 694h218c86 0 86-182 172-182h20" stroke-width="58"/>
+    <rect x="158" y="222" width="244" height="216" rx="54" fill="#ffffff" stroke-width="0"/>
+    <rect x="158" y="586" width="244" height="216" rx="54" fill="#ffffff" stroke-width="0"/>
+    <rect x="668" y="404" width="198" height="216" rx="54" fill="#ffffff" stroke-width="0"/>
+  </g>
+</svg>

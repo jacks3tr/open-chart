@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>OpenChart 1,000-shape LOD benchmark</title>
+    <style>
+      :root { color-scheme: dark; font-family: "Segoe UI", sans-serif; background: #08111f; color: #f8fafc; }
+      * { box-sizing: border-box; }
+      body { margin: 0; min-width: 720px; padding: 22px; background: radial-gradient(circle at top, #15243b 0, #08111f 48rem); }
+      header { display: flex; align-items: end; justify-content: space-between; gap: 20px; max-width: 1420px; margin: 0 auto 18px; }
+      h1 { margin: 0; font-size: 24px; letter-spacing: -0.02em; }
+      header p { margin: 5px 0 0; color: #9fb0c6; }
+      #status { color: #5eead4; font: 700 12px/1.4 "Cascadia Code", Consolas, monospace; letter-spacing: 0.08em; }
+      .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 680px)); gap: 16px; max-width: 1420px; margin: 0 auto; }
+      article { overflow: hidden; border: 1px solid #2a3b54; border-radius: 14px; background: #101d30; box-shadow: 0 18px 45px rgb(0 0 0 / 24%); }
+      article header { align-items: center; margin: 0; padding: 11px 14px; border-bottom: 1px solid #2a3b54; }
+      h2 { margin: 0; font-size: 14px; }
+      article p { margin: 0; color: #91a3ba; font: 11px/1.4 "Cascadia Code", Consolas, monospace; }
+      canvas { display: block; width: 680px; height: 448px; max-width: 100%; background: #f4f7fb; }
+      pre { max-width: 1420px; margin: 16px auto 0; padding: 14px 16px; overflow: auto; border: 1px solid #2a3b54; border-radius: 12px; background: #0d1828; color: #cbd5e1; font: 12px/1.45 "Cascadia Code", Consolas, monospace; }
+      @media (max-width: 1100px) { .grid { grid-template-columns: minmax(0, 680px); justify-content: center; } }
+    </style>
+    <script type="importmap">
+      {"imports":{"rbush":"/node_modules/rbush/index.js","quickselect":"/node_modules/quickselect/index.js"}}
+    </script>
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1>OpenChart · 1,000-shape LOD corpus</h1>
+        <p>Six libraries through the shared shape, scene, viewport, and Canvas2D pipeline.</p>
+      </div>
+      <div id="status">LOADING CORPUS</div>
+    </header>
+    <main class="grid">
+      <article>
+        <header><h2>Detail · 100%</h2><p data-stats-for="lod-detail">Waiting…</p></header>
+        <canvas id="lod-detail" aria-label="OpenChart detail-level shape corpus"></canvas>
+      </article>
+      <article>
+        <header><h2>Standard · 50%</h2><p data-stats-for="lod-standard">Waiting…</p></header>
+        <canvas id="lod-standard" aria-label="OpenChart standard-level shape corpus"></canvas>
+      </article>
+      <article>
+        <header><h2>Compact · 25%</h2><p data-stats-for="lod-compact">Waiting…</p></header>
+        <canvas id="lod-compact" aria-label="OpenChart compact-level shape corpus"></canvas>
+      </article>
+      <article>
+        <header><h2>Overview · 10%</h2><p data-stats-for="lod-overview">Waiting…</p></header>
+        <canvas id="lod-overview" aria-label="OpenChart overview-level shape corpus"></canvas>
+      </article>
+    </main>
+    <pre id="result">Benchmark starting…</pre>
+    <script type="module" src="/packages/render/dist/benchmark/render-shapes-1k.js"></script>
+  </body>
+</html>

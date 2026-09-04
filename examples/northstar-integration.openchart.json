@@ -1,0 +1,382 @@
+{
+  "schemaVersion": 1,
+  "documentId": "document.northstar-integration",
+  "uid": "00000000000000000000000001",
+  "title": "Northstar order-to-production architecture",
+  "rev": 0,
+  "pages": {
+    "page.architecture": {
+      "id": "page.architecture",
+      "uid": "00000000000000000000000002",
+      "name": "Integration architecture",
+      "layerIds": ["layer.systems"]
+    }
+  },
+  "layers": {
+    "layer.systems": {
+      "id": "layer.systems",
+      "uid": "00000000000000000000000003",
+      "name": "Systems and flows",
+      "pageId": "page.architecture",
+      "visible": true,
+      "locked": false
+    }
+  },
+  "nodes": {
+    "system.northstar": {
+      "id": "system.northstar",
+      "uid": "00000000000000000000000020",
+      "kind": "system",
+      "label": "Northstar ERP",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.source",
+      "data": {
+        "zone": "source",
+        "zoneLabel": "System of record",
+        "eyebrow": "ERP CORE",
+        "subtitle": "Commercial operations",
+        "capabilities": ["Orders and suppliers", "Items, routings and BOM", "Finance and journals"],
+        "status": "AUTHORITATIVE"
+      }
+    },
+    "service.ingress": {
+      "id": "service.ingress",
+      "uid": "00000000000000000000000021",
+      "kind": "service",
+      "label": "Ingress gateway",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.fabric",
+      "data": {
+        "zone": "fabric",
+        "zoneLabel": "Integration fabric",
+        "eyebrow": "EDGE",
+        "subtitle": "REST contracts and routing",
+        "capabilities": ["Schema gate", "Rate policy"],
+        "status": "HEALTHY"
+      }
+    },
+    "service.transform": {
+      "id": "service.transform",
+      "uid": "00000000000000000000000022",
+      "kind": "service",
+      "label": "Mapping engine",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.fabric",
+      "data": {
+        "zone": "fabric",
+        "zoneLabel": "Integration fabric",
+        "eyebrow": "PROCESS",
+        "subtitle": "Validation and enrichment",
+        "capabilities": ["Field mapping", "Duplicate control"],
+        "status": "HEALTHY"
+      }
+    },
+    "service.audit": {
+      "id": "service.audit",
+      "uid": "00000000000000000000000023",
+      "kind": "database",
+      "label": "Replay ledger",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.fabric",
+      "data": {
+        "zone": "fabric",
+        "zoneLabel": "Integration fabric",
+        "eyebrow": "CONTROL",
+        "subtitle": "Correlation and audit trail",
+        "capabilities": ["Checkpoint state", "Safe replay"],
+        "status": "DURABLE"
+      }
+    },
+    "system.forge": {
+      "id": "system.forge",
+      "uid": "00000000000000000000000024",
+      "kind": "system",
+      "label": "Forge MES",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.target",
+      "data": {
+        "zone": "target",
+        "zoneLabel": "Execution and control",
+        "eyebrow": "MES CORE",
+        "subtitle": "Manufacturing execution",
+        "capabilities": ["Production orders", "Inventory receipts", "Shipment history"],
+        "status": "CONNECTED"
+      }
+    },
+    "service.sentinel": {
+      "id": "service.sentinel",
+      "uid": "00000000000000000000000025",
+      "kind": "control",
+      "label": "Sentinel control plane",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.operations",
+      "data": {
+        "zone": "target",
+        "zoneLabel": "Execution and control",
+        "eyebrow": "OPERATIONS",
+        "subtitle": "Health and reconciliation",
+        "capabilities": ["Exception queues", "Run-level evidence"],
+        "status": "MONITORED"
+      }
+    }
+  },
+  "ports": {
+    "system.northstar.master-out": {
+      "id": "system.northstar.master-out",
+      "uid": "00000000000000000000000030",
+      "nodeId": "system.northstar",
+      "direction": "out",
+      "side": "east"
+    },
+    "system.northstar.transactions-in": {
+      "id": "system.northstar.transactions-in",
+      "uid": "00000000000000000000000031",
+      "nodeId": "system.northstar",
+      "direction": "in",
+      "side": "east"
+    },
+    "service.ingress.source-in": {
+      "id": "service.ingress.source-in",
+      "uid": "00000000000000000000000032",
+      "nodeId": "service.ingress",
+      "direction": "in",
+      "side": "west"
+    },
+    "service.ingress.target-out": {
+      "id": "service.ingress.target-out",
+      "uid": "00000000000000000000000033",
+      "nodeId": "service.ingress",
+      "direction": "out",
+      "side": "east"
+    },
+    "service.ingress.trace-out": {
+      "id": "service.ingress.trace-out",
+      "uid": "00000000000000000000000034",
+      "nodeId": "service.ingress",
+      "direction": "out",
+      "side": "east"
+    },
+    "system.forge.master-in": {
+      "id": "system.forge.master-in",
+      "uid": "00000000000000000000000035",
+      "nodeId": "system.forge",
+      "direction": "in",
+      "side": "west"
+    },
+    "system.forge.events-out": {
+      "id": "system.forge.events-out",
+      "uid": "00000000000000000000000036",
+      "nodeId": "system.forge",
+      "direction": "out",
+      "side": "west"
+    },
+    "service.transform.target-in": {
+      "id": "service.transform.target-in",
+      "uid": "00000000000000000000000037",
+      "nodeId": "service.transform",
+      "direction": "in",
+      "side": "east"
+    },
+    "service.transform.source-out": {
+      "id": "service.transform.source-out",
+      "uid": "00000000000000000000000038",
+      "nodeId": "service.transform",
+      "direction": "out",
+      "side": "west"
+    },
+    "service.transform.trace-out": {
+      "id": "service.transform.trace-out",
+      "uid": "00000000000000000000000039",
+      "nodeId": "service.transform",
+      "direction": "out",
+      "side": "south"
+    },
+    "service.audit.ingress-in": {
+      "id": "service.audit.ingress-in",
+      "uid": "00000000000000000000000040",
+      "nodeId": "service.audit",
+      "direction": "in",
+      "side": "east"
+    },
+    "service.audit.transform-in": {
+      "id": "service.audit.transform-in",
+      "uid": "00000000000000000000000041",
+      "nodeId": "service.audit",
+      "direction": "in",
+      "side": "north"
+    },
+    "service.audit.sentinel-out": {
+      "id": "service.audit.sentinel-out",
+      "uid": "00000000000000000000000042",
+      "nodeId": "service.audit",
+      "direction": "out",
+      "side": "east"
+    },
+    "service.sentinel.audit-in": {
+      "id": "service.sentinel.audit-in",
+      "uid": "00000000000000000000000043",
+      "nodeId": "service.sentinel",
+      "direction": "in",
+      "side": "west"
+    }
+  },
+  "edges": {
+    "edge.master-ingress": {
+      "id": "edge.master-ingress",
+      "uid": "00000000000000000000000050",
+      "fromPortId": "system.northstar.master-out",
+      "toPortId": "service.ingress.source-in",
+      "label": "Master data",
+      "semantic": "REST · create/update",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.flow-outbound",
+      "data": {}
+    },
+    "edge.master-target": {
+      "id": "edge.master-target",
+      "uid": "00000000000000000000000051",
+      "fromPortId": "service.ingress.target-out",
+      "toPortId": "system.forge.master-in",
+      "label": "Validated master",
+      "semantic": "REST · idempotent",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.flow-outbound",
+      "data": {}
+    },
+    "edge.events-transform": {
+      "id": "edge.events-transform",
+      "uid": "00000000000000000000000052",
+      "fromPortId": "system.forge.events-out",
+      "toPortId": "service.transform.target-in",
+      "label": "Production events",
+      "semantic": "Webhook · ordered",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.flow-inbound",
+      "data": {}
+    },
+    "edge.transactions-source": {
+      "id": "edge.transactions-source",
+      "uid": "00000000000000000000000053",
+      "fromPortId": "service.transform.source-out",
+      "toPortId": "system.northstar.transactions-in",
+      "label": "Transactions",
+      "semantic": "REST · replay-safe",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.flow-inbound",
+      "data": {}
+    },
+    "edge.ingress-audit": {
+      "id": "edge.ingress-audit",
+      "uid": "00000000000000000000000054",
+      "fromPortId": "service.ingress.trace-out",
+      "toPortId": "service.audit.ingress-in",
+      "label": "Ingress trace",
+      "semantic": "Correlation envelope",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.flow-control",
+      "data": {}
+    },
+    "edge.transform-audit": {
+      "id": "edge.transform-audit",
+      "uid": "00000000000000000000000055",
+      "fromPortId": "service.transform.trace-out",
+      "toPortId": "service.audit.transform-in",
+      "label": "Process trace",
+      "semantic": "Checkpoint evidence",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.flow-control",
+      "data": {}
+    },
+    "edge.audit-sentinel": {
+      "id": "edge.audit-sentinel",
+      "uid": "00000000000000000000000056",
+      "fromPortId": "service.audit.sentinel-out",
+      "toPortId": "service.sentinel.audit-in",
+      "label": "Run evidence",
+      "semantic": "Metrics + exceptions",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.flow-control",
+      "data": {}
+    }
+  },
+  "styles": {
+    "style.source": {
+      "id": "style.source",
+      "uid": "00000000000000000000000004",
+      "role": "system/source",
+      "tokens": { "accent": "#FF6A3D", "surface": "#FFF8F5" }
+    },
+    "style.fabric": {
+      "id": "style.fabric",
+      "uid": "00000000000000000000000005",
+      "role": "service/integration",
+      "tokens": { "accent": "#00A7A5", "surface": "#F0FBFA" }
+    },
+    "style.target": {
+      "id": "style.target",
+      "uid": "00000000000000000000000006",
+      "role": "system/target",
+      "tokens": { "accent": "#2D62E8", "surface": "#F4F7FF" }
+    },
+    "style.operations": {
+      "id": "style.operations",
+      "uid": "00000000000000000000000007",
+      "role": "service/operations",
+      "tokens": { "accent": "#64748B", "surface": "#F7F9FC" }
+    },
+    "style.flow-outbound": {
+      "id": "style.flow-outbound",
+      "uid": "00000000000000000000000008",
+      "role": "flow/master-data",
+      "tokens": { "stroke": "#FF6A3D", "label": "ERP to MES" }
+    },
+    "style.flow-inbound": {
+      "id": "style.flow-inbound",
+      "uid": "00000000000000000000000009",
+      "role": "flow/transaction",
+      "tokens": { "stroke": "#2D62E8", "label": "MES to ERP" }
+    },
+    "style.flow-control": {
+      "id": "style.flow-control",
+      "uid": "00000000000000000000000010",
+      "role": "flow/control",
+      "tokens": { "stroke": "#00A7A5", "label": "Control evidence", "dash": "4 5" }
+    }
+  },
+  "layout": {
+    "engine": "manual-reference",
+    "options": {
+      "canvasWidth": 1440,
+      "canvasHeight": 920,
+      "eyebrow": "OPENCHART · SYSTEM CONNECTIVITY",
+      "subtitle": "Order-to-production integration with traceable control-plane evidence",
+      "versionLabel": "REFERENCE / REV 01"
+    },
+    "overrides": {
+      "system.northstar": { "x": 86, "y": 258, "width": 310, "height": 282, "pinned": true },
+      "service.ingress": { "x": 556, "y": 196, "width": 300, "height": 154, "pinned": true },
+      "service.transform": { "x": 556, "y": 402, "width": 300, "height": 154, "pinned": true },
+      "service.audit": { "x": 556, "y": 608, "width": 300, "height": 154, "pinned": true },
+      "system.forge": { "x": 1014, "y": 258, "width": 310, "height": 282, "pinned": true },
+      "service.sentinel": { "x": 1014, "y": 642, "width": 310, "height": 120, "pinned": true }
+    },
+    "derived": null
+  },
+  "meta": {
+    "createdAt": "2026-08-30T00:00:00.000Z",
+    "updatedAt": "2026-08-30T00:00:00.000Z"
+  }
+}

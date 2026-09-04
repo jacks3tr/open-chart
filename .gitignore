@@ -1,0 +1,43 @@
+node_modules/
+dist/
+dist-types/
+coverage/
+*.tsbuildinfo
+*.tmp
+*.openchart.backup.json
+*.openchart.journal.ndjson
+*.openchart.session.json
+
+# Local scratch, not part of the product.
+.workbuddy-ai/
+.task/
+.superpowers/
+.playwright-cli/
+AGENTS.md
+design-qa.md
+docs/PHASE_*_EXECUTION.md
+total
+.profile-*.mjs
+
+# Generated icon catalog. Reproduce with `npm run generate:icons`
+# (runs automatically via the `prepare` lifecycle script after install).
+# The hand-written `icon-libraries.d.ts` beside it is source and is tracked.
+packages/shapes/generated/*.js
+
+# Throwaway diagnostic scripts.
+scripts/tmp-*.ts
+
+.openchart-benchmarks/
+.openchart-acceptance/
+output/playwright/
+.vite/
+target/
+src-tauri/target/
+**/src-tauri/gen/
+**/src-tauri/icons/android/
+**/src-tauri/icons/ios/
+**/src-tauri/icons/icon.icns
+**/src-tauri/icons/Square*Logo.png
+**/src-tauri/icons/StoreLogo.png
+.DS_Store
+Thumbs.db

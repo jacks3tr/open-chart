@@ -1,0 +1,52 @@
+{
+  "name": "openchart",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "benchmark": "node scripts/run-performance-benchmarks.mjs",
+    "benchmark:connectors": "npx tsx packages/connectors/benchmark/routing-1000.ts --output .openchart-benchmarks/connectors-1000.json",
+    "benchmark:beauty": "npx tsx packages/app/benchmark/beauty-corpus-20.ts --output .openchart-benchmarks/beauty-corpus-20.json",
+    "benchmark:core": "npx tsx packages/derive/benchmark/phase8-core.ts --output .openchart-benchmarks/phase8-core.json",
+    "benchmark:rules": "npx tsx packages/derive/benchmark/conditional-rules-1000.ts --output .openchart-benchmarks/conditional-rules-1000.json",
+    "benchmark:render": "npm run build && node scripts/run-render-benchmark.mjs --output .openchart-benchmarks/render-10k.json",
+    "benchmark:shapes": "npm run build && npx tsx packages/scene/benchmark/generate-shape-corpus.ts --output .openchart-benchmarks/shape-corpus.json && node scripts/run-render-benchmark.mjs --benchmark-path /packages/render/benchmark/render-shapes-1k.html --output .openchart-benchmarks/render-shapes-1k.json",
+    "build": "tsc -b && npm run build --workspace @openchart/app",
+    "check": "npm run check:icons && npm run lint && npm run typecheck && npm test",
+    "check:icons": "node scripts/generate-icon-catalog.mjs --check",
+    "desktop:build": "npm run build --workspace @openchart/desktop",
+    "desktop:dev": "npm run dev --workspace @openchart/desktop",
+    "fuzz:full": "tsx packages/ops/test/operation-fuzzer.ts --sequences 1000000",
+    "fuzz:smoke": "tsx packages/ops/test/operation-fuzzer.ts --sequences 10000",
+    "generate:icons": "node scripts/generate-icon-catalog.mjs",
+    "lint": "eslint . --max-warnings=0",
+    "openchart": "tsx packages/agent/src/cli.ts",
+    "prepare": "npm run generate:icons",
+    "test": "vitest run --exclude \"**/dist/**\" --exclude \"**/dist-types/**\"",
+    "test:watch": "vitest --exclude \"**/dist/**\" --exclude \"**/dist-types/**\"",
+    "typecheck": "tsc -b --pretty false"
+  },
+  "dependencies": {
+    "immer": "11.1.18",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@phosphor-icons/core": "2.1.1",
+    "@types/node": "24.13.3",
+    "eslint": "10.9.1",
+    "simple-icons": "16.29.0",
+    "svgpath": "2.6.0",
+    "tsx": "4.23.13",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.68.0",
+    "vitest": "4.1.11"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "name": "@openchart/desktop",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "build": "tauri build --no-bundle",
+    "dev": "tauri dev"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.11.4"
+  }
+}
