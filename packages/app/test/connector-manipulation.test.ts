@@ -1,12 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { validateDocument, type OpenChartDocument } from '@openchart/ir';
 import { OperationEngine, type Operation, type OperationEnvelope } from '@openchart/ops';
-import { buildSceneDescription, type SceneItem, type SceneTextItem } from '@openchart/scene';
+import { buildSceneDescription, type SceneItem, type SceneRectItem, type SceneTextItem } from '@openchart/scene';
 
 import {
   addEdgeWaypointTransaction,
   commitConnectorCreation,
+  connectorDoubleClickAction,
   connectorDragExceededThreshold,
+  connectorLabelEditorStyle,
   createConnectorTransaction,
   detachEdgeEndpointTransaction,
   dragOrthogonalSegmentTransaction,
@@ -140,6 +142,18 @@ function findEdgeLabelText(items: readonly SceneItem[], edgeId: string): SceneTe
   return undefined;
 }
 
+function findEdgeLabelBackground(items: readonly SceneItem[], edgeId: string): SceneRectItem | undefined {
+  for (const item of items) {
+    if (item.type !== 'group') continue;
+    if (item.role === 'label' && item.entityId === edgeId) {
+      return item.children.find((child): child is SceneRectItem => child.type === 'rect');
+    }
+    const nested = findEdgeLabelBackground(item.children, edgeId);
+    if (nested !== undefined) return nested;
+  }
+  return undefined;
+}
+
 describe('direct connector manipulation', () => {
   it('drag-to-connect commits the same canonical operations as the connector tool', () => {
     const sourceDocument = connectorDocument();
@@ -257,6 +271,46 @@ describe('direct connector manipulation', () => {
     expect(Object.keys(engine.document.ports)).toHaveLength(0);
   });
 
+  it('double-click dispatch edits labels until a selected labeled connector is clicked off-label', () => {
+    expect(connectorDoubleClickAction({ label: '', wasSelected: true, labelHit: false })).toBe('edit-label');
+    expect(connectorDoubleClickAction({ label: 'HTTPS', wasSelected: false, labelHit: false })).toBe('edit-label');
+    expect(connectorDoubleClickAction({ label: 'HTTPS', wasSelected: true, labelHit: true })).toBe('edit-label');
+    expect(connectorDoubleClickAction({ label: 'HTTPS', wasSelected: true, labelHit: false })).toBe('add-waypoint');
+  });
+
+  it('centers the in-place connector label editor on the rendered label background', () => {
+    const engine = new OperationEngine(connectorDocument());
+    expect(engine.apply(createEnvelope(engine.document, 'tx.create'))).toMatchObject({ ok: true });
+    const edgeId = firstEdgeId(engine.document);
+    const label = edgeLabelTransaction(engine.document, {
+      txId: 'tx.label-position', edgeId, label: 'API', labelT: 0.5,
+    });
+    expect(label).toBeDefined();
+    if (label === undefined) return;
+    expect(engine.apply(label)).toMatchObject({ ok: true });
+    const scene = buildSceneDescription(engine.document, { pageId: 'page.main', routingStrategy: 'fast' });
+    const connector = scene.connectors?.find((candidate) => candidate.edgeId === edgeId);
+    const background = findEdgeLabelBackground(scene.items, edgeId);
+    expect(connector).toBeDefined();
+    expect(background).toBeDefined();
+    if (connector === undefined || background === undefined) return;
+    const camera = { x: 0, y: 0, zoom: 2 } as const;
+    const style = connectorLabelEditorStyle(engine.document, {
+      edgeId, points: connector.points, labelT: 0.5, value: 'API', camera,
+    });
+    expect(style).toBeDefined();
+    if (style === undefined) return;
+    const left = Number(style.left);
+    const top = Number(style.top);
+    const width = Number(style.width);
+    const height = Number(style.height);
+    expect(left + width / 2).toBeCloseTo((background.frame.x + background.frame.width / 2) * camera.zoom, 8);
+    expect(top + height / 2).toBeCloseTo((background.frame.y + background.frame.height / 2) * camera.zoom, 8);
+    expect(width).toBeGreaterThanOrEqual(background.frame.width * camera.zoom);
+    expect(height).toBeGreaterThanOrEqual(background.frame.height * camera.zoom);
+    expect(style.fontSize).toBe(20);
+  });
+
   it('double-click label path commits canonical label ops and text edit round-trips through undo', () => {
     const engine = new OperationEngine(connectorDocument());
     expect(engine.apply(createEnvelope(engine.document, 'tx.create'))).toMatchObject({ ok: true });
@@ -276,6 +330,23 @@ describe('direct connector manipulation', () => {
     expect(engine.undo()).toMatchObject({ ok: true });
     expect(engine.document.edges[edgeId]?.label).toBe('');
     expect(engine.document.layout.edgeOverrides?.[edgeId]?.labelT).toBeUndefined();
+  });
+
+  it('ignores out-of-range label positions that clamp to the stored value', () => {
+    const engine = new OperationEngine(connectorDocument());
+    expect(engine.apply(createEnvelope(engine.document, 'tx.create'))).toMatchObject({ ok: true });
+    const edgeId = firstEdgeId(engine.document);
+    const label = edgeLabelTransaction(engine.document, {
+      txId: 'tx.label', edgeId, label: 'request', labelT: 1,
+    });
+    expect(label).toBeDefined();
+    if (label === undefined) return;
+    expect(engine.apply(label)).toMatchObject({ ok: true });
+    const edge = engine.document.edges[edgeId];
+    if (edge === undefined) return;
+    expect(edgeLabelTransaction(engine.document, {
+      txId: 'tx.label-clamped-high', edgeId, label: edge.label, labelT: 1.5,
+    })).toBeUndefined();
   });
 
   it('label drag repositions undoably and sub-threshold plain drag produces no label ops', () => {

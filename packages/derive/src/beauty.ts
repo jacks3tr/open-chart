@@ -230,8 +230,9 @@ function compileRoutingOperations(document: OpenChartDocument, pageId: string): 
   for (const edge of Object.values(document.edges)
     .filter((candidate) => candidate.pageId === pageId)
     .sort((left, right) => left.id.localeCompare(right.id))) {
-    if (!equalJson(edge.routing, BEAUTY_ROUTING)) {
-      operations.push({ op: 'set_edge_routing', id: edge.id, routing: BEAUTY_ROUTING });
+    const routing = { ...edge.routing, ...BEAUTY_ROUTING };
+    if (!equalJson(edge.routing, routing)) {
+      operations.push({ op: 'set_edge_routing', id: edge.id, routing });
     }
   }
   return operations;

@@ -405,4 +405,67 @@ describe('buildSceneDescription', () => {
     });
     expect(items.filter((item) => item.type === 'text').every((item) => item.fontSize >= 10)).toBe(true);
   });
+
+  it('preserves library shape dash when no border override is set', () => {
+    const input: unknown = JSON.parse(readFileSync(fixturePath, 'utf8'));
+    const validation = validateDocument(input);
+    if (!validation.ok) {
+      throw new Error(`Invalid visual fixture: ${JSON.stringify(validation.diagnostics)}`);
+    }
+    const document = structuredClone(validation.document);
+    const pageId = Object.keys(document.pages)[0] as string;
+    const layerId = document.pages[pageId]?.layerIds[0] as string;
+    const styleId = Object.keys(document.styles)[0] as string;
+    document.nodes['test.dashed'] = {
+      id: 'test.dashed',
+      uid: '0'.repeat(25) + '1',
+      kind: 'node',
+      label: 'Ext',
+      pageId,
+      layerId,
+      styleId,
+      data: { shape: { libraryId: 'generic', entryId: 'generic.external-system' } },
+    };
+    document.layout.overrides['test.dashed'] = { x: 10, y: 10, width: 200, height: 120 };
+    const body = collectItems(buildSceneDescription(document, { pageId }).items).find(
+      (item) => item.id === 'shape-test.dashed-geometry-body',
+    );
+    expect(body).toMatchObject({ type: 'rect', dash: [6, 3] });
+  });
+
+  it('renders floating connector anchors as a single centered endpoint dot', () => {
+    const input: unknown = JSON.parse(readFileSync(fixturePath, 'utf8'));
+    const validation = validateDocument(input);
+    if (!validation.ok) {
+      throw new Error(`Invalid visual fixture: ${JSON.stringify(validation.diagnostics)}`);
+    }
+    const document = structuredClone(validation.document);
+    const pageId = Object.keys(document.pages)[0] as string;
+    const layerId = document.pages[pageId]?.layerIds[0] as string;
+    const styleId = Object.keys(document.styles)[0] as string;
+    document.nodes['test.anchor'] = {
+      id: 'test.anchor',
+      uid: '1'.repeat(26),
+      kind: 'connector-anchor',
+      label: '',
+      pageId,
+      layerId,
+      styleId,
+      data: { connectorAnchor: true },
+    };
+    document.layout.overrides['test.anchor'] = { x: 500, y: 300, width: 0.01, height: 0.01 };
+    const group = collectItems(buildSceneDescription(document, { pageId }).items).find(
+      (item) => item.type === 'group' && item.entityId === 'test.anchor',
+    );
+    expect(group).toMatchObject({ type: 'group', role: 'node', entityId: 'test.anchor' });
+    if (group?.type !== 'group') {
+      throw new Error('Expected an anchor node group');
+    }
+    expect(group.children).toHaveLength(1);
+    expect(group.children[0]).toMatchObject({
+      type: 'circle',
+      center: { x: 500.005, y: 300.005 },
+      radius: 4,
+    });
+  });
 });

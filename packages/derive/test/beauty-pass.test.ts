@@ -30,6 +30,10 @@ describe('planBeautyPass', () => {
       };
     }
     ugly.layout.derived = null;
+    ugly.edges['edge.ingress-audit'] = {
+      ...ugly.edges['edge.ingress-audit']!,
+      routing: { mode: 'straight', lineWidth: 5, lineStyle: 'dotted', startMarker: 'diamond', endMarker: 'arrow' },
+    };
     const engine = new OperationEngine(ugly);
     const original = engine.document;
 
@@ -54,6 +58,9 @@ describe('planBeautyPass', () => {
     expect(Object.values(engine.document.edges).every(
       (edge) => edge.routing?.mode === 'orthogonal' && edge.routing.avoidObstacles === true,
     )).toBe(true);
+    expect(engine.document.edges['edge.ingress-audit']?.routing).toMatchObject({
+      lineWidth: 5, lineStyle: 'dotted', startMarker: 'diamond', endMarker: 'arrow',
+    });
     const frames = Object.values(engine.document.layout.derived ?? {});
     const minY = Math.min(...frames.map((frame) => frame.y));
     const maxY = Math.max(...frames.map((frame) => frame.y + frame.height));

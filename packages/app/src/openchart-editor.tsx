@@ -111,23 +111,24 @@ import {
   type SceneDescription,
   type ScenePathCommand,
 } from '@openchart/scene';
-import {
-  exportDocumentToD2,
-  exportDocumentToMermaid,
-  renderSceneToSvg,
-  type TextProjectionLoss,
-} from '@openchart/serialize';
+import { renderSceneToSvg } from '@openchart/serialize';
 import {
   evaluateShapeDefinition,
   type EvaluatedGeometry,
   type EvaluatedPathCommand,
 } from '@openchart/shapes';
 import {
-  getShapeLibraryEntry,
-  listShapeLibraries,
-  resolveLibraryShape,
-  searchShapeLibraries,
-  type ShapeLibrarySearchResult,
+  DECORATIVE_SHAPE_LIBRARY_SUMMARIES,
+  getShapeLibraryEntry as getBuiltinShapeLibraryEntry,
+  isDecorativeShapeLibraryId,
+  listShapeLibraries as listBuiltinShapeLibraries,
+  resolveLibraryShape as resolveBuiltinLibraryShape,
+  searchShapeLibraries as searchBuiltinShapeLibraries,
+} from '@openchart/shapes/libraries-core';
+import type {
+  ResolveLibraryShapeResult,
+  ShapeLibraryEntry,
+  ShapeLibrarySearchResult,
 } from '@openchart/shapes/libraries';
 
 import {
@@ -140,14 +141,22 @@ import {
 } from './desktop-file.js';
 import { createOpenChartPageImportTransaction } from './document-import.js';
 import { requestBeautyPass, requestLayout } from './layout-worker-client.js';
+import {
+  loadBrowserTextExport,
+  loadFullShapeCatalog,
+  loadStarterTemplates,
+  type FullShapeCatalogModule,
+  type StarterTemplatesModule,
+} from './lazy-features.js';
 import { LiveDocumentSession } from './live-document-session.js';
 import {
-  STARTER_TEMPLATES,
-  createBlankPageTransaction,
-  createStarterTemplateTransaction,
-  getStarterTemplate,
-  type StarterTemplateId,
-} from './starter-templates.js';
+  createConnectorVisualStyleTransaction,
+  createSelectionTextStyleTransaction,
+  createShapeVisualStyleTransaction,
+  type ConnectorVisualStyleUpdate,
+  type ShapeVisualStyleUpdate,
+} from './selection-styling.js';
+import type { StarterTemplateId } from './starter-templates.js';
 
 export interface OpenChartEditorProps {
   readonly initialDocument: OpenChartDocument;
@@ -465,15 +474,22 @@ const LIBRARY_TONES: Readonly<Record<string, string>> = {
   phosphor: '#64748B',
 };
 
-const SHAPE_LIBRARIES = listShapeLibraries().map((library) => ({
-  id: library.id,
-  label: library.name,
-  count: library.entries.length,
-  tone: LIBRARY_TONES[library.id] ?? '#64748B',
-  kind: library.id === 'phosphor' || library.id === 'simple-icons'
-    ? 'icon' as const
-    : 'diagram' as const,
-}));
+const SHAPE_LIBRARIES = [
+  ...listBuiltinShapeLibraries().map((library) => ({
+    id: library.id,
+    label: library.name,
+    count: library.entries.length,
+    tone: LIBRARY_TONES[library.id] ?? '#64748B',
+    kind: 'diagram' as const,
+  })),
+  ...DECORATIVE_SHAPE_LIBRARY_SUMMARIES.map((library) => ({
+    id: library.id,
+    label: library.name,
+    count: library.count,
+    tone: LIBRARY_TONES[library.id] ?? '#64748B',
+    kind: 'icon' as const,
+  })),
+];
 const SHAPE_LIBRARY_TOTAL = SHAPE_LIBRARIES.reduce((total, library) => total + library.count, 0);
 
 function shapeKind(result: ShapeLibrarySearchResult): InsertNodeKind {
@@ -516,10 +532,23 @@ function sameCatalogShape(left: CatalogShapeRef, right: CatalogShapeRef): boolea
 function validCatalogShapeRef(value: unknown): CatalogShapeRef | undefined {
   if (value === null || typeof value !== 'object') return undefined;
   const candidate = value as Partial<CatalogShapeRef>;
-  if (typeof candidate.libraryId !== 'string' || typeof candidate.entryId !== 'string') return undefined;
-  return getShapeLibraryEntry(candidate.libraryId, candidate.entryId) === undefined
-    ? undefined
-    : { libraryId: candidate.libraryId, entryId: candidate.entryId };
+  if (
+    typeof candidate.libraryId !== 'string' ||
+    typeof candidate.entryId !== 'string' ||
+    candidate.entryId.length === 0
+  ) return undefined;
+  const knownBuiltin = getBuiltinShapeLibraryEntry(candidate.libraryId, candidate.entryId) !== undefined;
+  if (!knownBuiltin && !isDecorativeShapeLibraryId(candidate.libraryId)) return undefined;
+  return { libraryId: candidate.libraryId, entryId: candidate.entryId };
+}
+
+function documentUsesDecorativeShapes(document: OpenChartDocument): boolean {
+  return Object.values(document.nodes).some((node) => {
+    const shape = node.data.shape;
+    if (shape === null || typeof shape !== 'object' || Array.isArray(shape)) return false;
+    const libraryId = (shape as { readonly libraryId?: unknown }).libraryId;
+    return typeof libraryId === 'string' && isDecorativeShapeLibraryId(libraryId);
+  });
 }
 
 export function normalizeCatalogShapeRefs(value: unknown, limit: number): readonly CatalogShapeRef[] {
@@ -553,8 +582,11 @@ export function toggleFavoriteCatalogShape(
     : [ref, ...current].slice(0, MAX_FAVORITE_SHAPES);
 }
 
-function catalogResultFromRef(ref: CatalogShapeRef): ShapeLibrarySearchResult | undefined {
-  const entry = getShapeLibraryEntry(ref.libraryId, ref.entryId);
+function catalogResultFromRef(
+  ref: CatalogShapeRef,
+  getEntry: (libraryId: string, entryId: string) => ShapeLibraryEntry | undefined,
+): ShapeLibrarySearchResult | undefined {
+  const entry = getEntry(ref.libraryId, ref.entryId);
   return entry === undefined ? undefined : { libraryId: ref.libraryId, entry };
 }
 
@@ -626,9 +658,15 @@ function shapeGeometry(geometry: EvaluatedGeometry, key: string): ReactNode {
   }
 }
 
-function CatalogShapePreview({ result }: { readonly result: ShapeLibrarySearchResult }) {
-  const resolved = resolveLibraryShape(result.libraryId, result.entry.id);
-  if (!resolved.ok) {
+function CatalogShapePreview({
+  result,
+  resolveShape,
+}: {
+  readonly result: ShapeLibrarySearchResult;
+  readonly resolveShape: (libraryId: string, entryId: string) => ResolveLibraryShapeResult | undefined;
+}) {
+  const resolved = resolveShape(result.libraryId, result.entry.id);
+  if (resolved === undefined || !resolved.ok) {
     return <Icon src={shapesIcon} size={24} />;
   }
   const { width, height } = resolved.definition.defaultSize;
@@ -685,10 +723,14 @@ export function serializeEditorPreferences(preferences: EditorPreferences): stri
 }
 
 function loadPreferences(): EditorPreferences {
-  if (typeof window === 'undefined') {
+  try {
+    if (typeof window === 'undefined') {
+      return DEFAULT_PREFERENCES;
+    }
+    return parseEditorPreferences(window.localStorage.getItem(PREFERENCES_KEY));
+  } catch {
     return DEFAULT_PREFERENCES;
   }
-  return parseEditorPreferences(window.localStorage.getItem(PREFERENCES_KEY));
 }
 
 function savePreferences(preferences: EditorPreferences): void {
@@ -725,30 +767,6 @@ function downloadBlob(blob: Blob, filename: string): void {
   anchor.click();
   anchor.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
-}
-
-export interface BrowserTextExport {
-  readonly content: string;
-  readonly extension: 'd2' | 'mmd';
-  readonly mimeType: 'text/plain;charset=utf-8';
-  readonly losses: readonly TextProjectionLoss[];
-}
-
-export function createBrowserTextExport(
-  document: OpenChartDocument,
-  format: 'd2' | 'mermaid',
-  pageId?: string,
-): BrowserTextExport {
-  const options = pageId === undefined ? {} : { pageId };
-  const projection = format === 'd2'
-    ? exportDocumentToD2(document, options)
-    : exportDocumentToMermaid(document, options);
-  return {
-    content: projection.content,
-    extension: format === 'd2' ? 'd2' : 'mmd',
-    mimeType: 'text/plain;charset=utf-8',
-    losses: projection.losses,
-  };
 }
 
 async function rasterizeScene(
@@ -816,6 +834,57 @@ function clamp(value: number, minimum: number, maximum: number): number {
 
 function editorColor(value: unknown, fallback: string): string {
   return typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value) ? value : fallback;
+}
+
+const STYLE_SWATCHES = [
+  '#0F172A', '#334155', '#64748B', '#CBD5E1', '#FFFFFF',
+  '#2563EB', '#0F766E', '#7C3AED', '#B45309', '#DC2626', '#059669', '#D97706',
+] as const;
+
+function isConnectorMarker(
+  value: string,
+): value is NonNullable<ConnectorVisualStyleUpdate['startMarker']> {
+  return value === 'none' ||
+    value === 'arrow' ||
+    value === 'open-arrow' ||
+    value === 'diamond' ||
+    value === 'circle' ||
+    value === 'bar' ||
+    value === 'crow-foot';
+}
+
+function ColorControl({ label, value, mixed = false, onChange }: {
+  readonly label: string;
+  readonly value: string;
+  readonly mixed?: boolean;
+  readonly onChange: (value: string) => void;
+}) {
+  const normalized = editorColor(value, '#64748B');
+  return (
+    <div className="oc-style-color-control">
+      <div className="oc-style-control-heading"><span>{label}</span>{mixed ? <small>Mixed</small> : null}</div>
+      <div className="oc-style-color-row">
+        <input type="color" aria-label={`${label} color`} value={normalized} onChange={(event) => onChange(event.currentTarget.value)} />
+        <input
+          key={`${label}-${normalized}`}
+          className="oc-hex-input"
+          aria-label={`${label} hex color`}
+          defaultValue={normalized.toUpperCase()}
+          onBlur={(event) => {
+            const candidate = event.currentTarget.value.trim();
+            if (/^#[0-9a-f]{6}$/i.test(candidate)) onChange(candidate.toUpperCase());
+            else event.currentTarget.value = normalized.toUpperCase();
+          }}
+        />
+      </div>
+      <div className="oc-style-swatches" aria-label={`${label} swatches`}>
+        {STYLE_SWATCHES.map((swatch) => (
+          <button type="button" key={swatch} className={normalized.toUpperCase() === swatch ? 'is-active' : undefined}
+            style={{ background: swatch }} aria-label={`Set ${label.toLowerCase()} to ${swatch}`} onClick={() => onChange(swatch)} />
+        ))}
+      </div>
+    </div>
+  );
 }
 
 function oppositeConnectorSide(
@@ -969,6 +1038,58 @@ function selectionBounds(
 }
 
 export type DistributionMode = 'horizontal' | 'vertical' | 'equal-spacing';
+
+export function reorderSiblingNodes(
+  siblings: readonly Node[],
+  selectedIds: readonly string[],
+  mode: 'front' | 'forward' | 'backward' | 'back',
+): Node[] | undefined {
+  const selected = new Set(selectedIds);
+  let ordered = [...siblings];
+  if (mode === 'front') {
+    ordered = [
+      ...ordered.filter((node) => !selected.has(node.id)),
+      ...ordered.filter((node) => selected.has(node.id)),
+    ];
+  } else if (mode === 'back') {
+    ordered = [
+      ...ordered.filter((node) => selected.has(node.id)),
+      ...ordered.filter((node) => !selected.has(node.id)),
+    ];
+  } else if (mode === 'forward') {
+    for (let index = ordered.length - 2; index >= 0; index -= 1) {
+      const current = ordered[index];
+      const next = ordered[index + 1];
+      if (
+        current !== undefined &&
+        next !== undefined &&
+        selected.has(current.id) &&
+        !selected.has(next.id)
+      ) {
+        ordered[index] = next;
+        ordered[index + 1] = current;
+      }
+    }
+  } else {
+    for (let index = 1; index < ordered.length; index += 1) {
+      const current = ordered[index];
+      const previous = ordered[index - 1];
+      if (
+        current !== undefined &&
+        previous !== undefined &&
+        selected.has(current.id) &&
+        !selected.has(previous.id)
+      ) {
+        ordered[index - 1] = current;
+        ordered[index] = previous;
+      }
+    }
+  }
+  if (ordered.every((node, index) => node.id === siblings[index]?.id)) {
+    return undefined;
+  }
+  return ordered;
+}
 
 function distributionCenter(frame: TransformFrame, axis: 'x' | 'y'): number {
   return axis === 'x' ? frame.x + frame.width / 2 : frame.y + frame.height / 2;
@@ -1262,6 +1383,7 @@ const CONNECTOR_HANDLE_OFFSET_PX = 11;
 const CONNECTOR_DRAG_THRESHOLD_PX = 4;
 const CONNECTOR_ANCHOR_KIND = 'connector-anchor';
 const CONNECTOR_ANCHOR_SIZE = 0.01;
+const MAX_BROWSER_DOCUMENT_BYTES = 32 * 1024 * 1024;
 
 function isConnectorAnchorNode(node: Node | undefined): boolean {
   return node?.kind === CONNECTOR_ANCHOR_KIND && node.data.connectorAnchor === true;
@@ -1933,6 +2055,99 @@ function edgeLabelAt(
   return labelPoint !== undefined && Math.hypot(point.x - labelPoint.x, point.y - labelPoint.y) <= tolerance;
 }
 
+export type ConnectorDoubleClickAction = 'edit-label' | 'add-waypoint';
+
+export function connectorDoubleClickAction(request: {
+  readonly label: string;
+  readonly wasSelected: boolean;
+  readonly labelHit: boolean;
+}): ConnectorDoubleClickAction {
+  return request.label.trim().length === 0 || !request.wasSelected || request.labelHit
+    ? 'edit-label'
+    : 'add-waypoint';
+}
+
+function connectorLabelTextWidth(value: string, characterWidth: number): number {
+  return Math.max(20, value.length * characterWidth);
+}
+
+function connectorLabelEllipsis(value: string, maxWidth: number, characterWidth: number): string {
+  if (value.length === 0 || connectorLabelTextWidth(value, characterWidth) <= maxWidth) return value;
+  const maxCharacters = Math.max(1, Math.floor(maxWidth / characterWidth) - 1);
+  return `${value.slice(0, maxCharacters).trimEnd()}…`;
+}
+
+export function connectorLabelEditorStyle(
+  document: OpenChartDocument,
+  request: {
+    readonly edgeId: string;
+    readonly points: readonly InteractionPoint[];
+    readonly labelT: number;
+    readonly value: string;
+    readonly camera: { readonly x: number; readonly y: number; readonly zoom: number };
+  },
+): CSSProperties | undefined {
+  const edge = document.edges[request.edgeId];
+  if (edge === undefined) return undefined;
+  const point = edgeLabelDisplayPoint(
+    request.points,
+    { ...document.layout.edgeOverrides?.[edge.id], labelT: request.labelT },
+    request.labelT,
+  );
+  if (point === undefined) return undefined;
+  const style = document.styles[edge.styleId];
+  const tokenLabel = typeof style?.tokens.label === 'string' && style.tokens.label.trim().length > 0
+    ? style.tokens.label
+    : undefined;
+  const fallbackLabel = tokenLabel ?? style?.role ?? edge.styleId;
+  const lineLabel = request.value || edge.semantic || fallbackLabel;
+  const caption = request.value && edge.semantic
+    ? edge.semantic
+    : request.value
+      ? edge.semantic
+      : fallbackLabel;
+  const fontSize = clamp(typeof edge.data.fontSize === 'number' ? edge.data.fontSize : 10, 8, 96);
+  const lineHeight = clamp(typeof edge.data.lineHeight === 'number' ? edge.data.lineHeight : 1.2, 0.8, 3);
+  const characterWidth = 5.6 * (fontSize / 10);
+  const visualLabel = connectorLabelEllipsis(lineLabel, 300, characterWidth);
+  const visualCaption = caption === '' ? '' : connectorLabelEllipsis(caption, 210, 5.1);
+  const labelWidth = Math.min(
+    320,
+    Math.max(
+      68,
+      Math.max(
+        connectorLabelTextWidth(visualLabel, characterWidth),
+        connectorLabelTextWidth(visualCaption, 5.1),
+      ) + 18,
+    ),
+  );
+  const labelLineAdvance = fontSize * lineHeight;
+  const labelY = point.y - (visualCaption ? Math.max(16, labelLineAdvance) : fontSize * 0.8);
+  const backgroundY = labelY - 13;
+  const backgroundHeight = visualCaption ? 31 : 20;
+  const width = Math.max(140, labelWidth * request.camera.zoom);
+  const height = Math.max(34, backgroundHeight * request.camera.zoom);
+  const centerX = (point.x - request.camera.x) * request.camera.zoom;
+  const centerY = (backgroundY + backgroundHeight / 2 - request.camera.y) * request.camera.zoom;
+  const textColor = typeof edge.data.textColor === 'string' && /^#[0-9a-f]{6}$/i.test(edge.data.textColor)
+    ? edge.data.textColor
+    : undefined;
+  return {
+    left: centerX - width / 2,
+    top: centerY - height / 2,
+    width,
+    height,
+    fontSize: clamp(fontSize * request.camera.zoom, 11, 28),
+    fontFamily: typeof edge.data.fontFamily === 'string' ? edge.data.fontFamily : 'Segoe UI, Arial, sans-serif',
+    fontWeight: typeof edge.data.fontWeight === 'number' ? edge.data.fontWeight : 700,
+    fontStyle: edge.data.fontStyle === 'italic' ? 'italic' : 'normal',
+    textAlign: edge.data.textAlign === 'left' ? 'left' : edge.data.textAlign === 'right' ? 'right' : 'center',
+    ...(textColor === undefined ? {} : { color: textColor }),
+    textDecoration: edge.data.underline === true ? 'underline' : 'none',
+    lineHeight,
+  };
+}
+
 export function edgeLabelTransaction(
   document: OpenChartDocument,
   request: {
@@ -1949,12 +2164,15 @@ export function edgeLabelTransaction(
     operations.push({ op: 'set_edge_label', id: edge.id, label: request.label });
   }
   const current = document.layout.edgeOverrides?.[edge.id];
-  if (request.labelT !== undefined && current?.labelT !== request.labelT) {
-    operations.push({
-      op: 'set_edge_layout',
-      id: edge.id,
-      layout: { ...current, labelT: clamp(request.labelT, 0, 1) },
-    });
+  if (request.labelT !== undefined) {
+    const labelT = clamp(request.labelT, 0, 1);
+    if (current?.labelT !== labelT) {
+      operations.push({
+        op: 'set_edge_layout',
+        id: edge.id,
+        layout: { ...current, labelT },
+      });
+    }
   }
   if (operations.length === 0) return undefined;
   return {
@@ -3114,11 +3332,12 @@ function CanvasStage({
       if (edge === undefined) return;
       const projection = projectLabelToConnector(connector.points, point, camera.zoom);
       const labelT = document.layout.edgeOverrides?.[edge.id]?.labelT ?? projection?.labelT ?? 0.5;
-      if (
-        edge.label.trim().length === 0 ||
-        !wasSelected ||
-        edgeLabelAt(document, connector, point, 18 / camera.zoom)
-      ) {
+      const action = connectorDoubleClickAction({
+        label: edge.label,
+        wasSelected,
+        labelHit: edgeLabelAt(document, connector, point, 18 / camera.zoom),
+      });
+      if (action === 'edit-label') {
         onBeginEdgeLabelEdit(edge.id, labelT);
       } else {
         onAddEdgeWaypoint(connector.edgeId, point);
@@ -3128,47 +3347,20 @@ function CanvasStage({
 
   const editFrame = editing?.kind === 'node' ? displayFrames[editing.id] : undefined;
   const editNode = editing?.kind === 'node' ? document.nodes[editing.id] : undefined;
-  const editEdge = editing?.kind === 'edge' ? document.edges[editing.id] : undefined;
   const editConnector = editing?.kind === 'edge'
     ? connectors.find((connector) => connector.edgeId === editing.id)
     : undefined;
-  const edgeEditPoint = editing?.kind === 'edge' && editConnector !== undefined
-    ? edgeLabelDisplayPoint(
-        editConnector.points,
-        { ...document.layout.edgeOverrides?.[editing.id], labelT: editing.labelT },
-        editing.labelT,
-      )
-    : undefined;
   const editStyle: CSSProperties | undefined =
     editing?.kind === 'edge'
-      ? edgeEditPoint === undefined
+      ? editConnector === undefined
         ? undefined
-        : {
-            left: (edgeEditPoint.x - camera.x) * camera.zoom - Math.max(70, 90 * camera.zoom),
-            top: (edgeEditPoint.y - camera.y) * camera.zoom - 18,
-            width: Math.max(140, 180 * camera.zoom),
-            height: Math.max(34, 38 * camera.zoom),
-            fontSize: clamp(
-              (typeof editEdge?.data.fontSize === 'number' ? editEdge.data.fontSize : 10) * camera.zoom,
-              11,
-              28,
-            ),
-            fontFamily: typeof editEdge?.data.fontFamily === 'string'
-              ? editEdge.data.fontFamily
-              : 'Segoe UI, Arial, sans-serif',
-            fontWeight: typeof editEdge?.data.fontWeight === 'number' ? editEdge.data.fontWeight : 700,
-            fontStyle: editEdge?.data.fontStyle === 'italic' ? 'italic' : 'normal',
-            textAlign: editEdge?.data.textAlign === 'left'
-              ? 'left'
-              : editEdge?.data.textAlign === 'right'
-                ? 'right'
-                : 'center',
-            color: typeof editEdge?.data.textColor === 'string' && /^#[0-9a-f]{6}$/i.test(editEdge.data.textColor)
-              ? editEdge.data.textColor
-              : undefined,
-            textDecoration: editEdge?.data.underline === true ? 'underline' : 'none',
-            lineHeight: typeof editEdge?.data.lineHeight === 'number' ? editEdge.data.lineHeight : 1.2,
-          }
+        : connectorLabelEditorStyle(document, {
+            edgeId: editing.id,
+            points: editConnector.points,
+            labelT: editing.labelT,
+            value: editing.value,
+            camera,
+          })
       : editFrame === undefined
         ? undefined
         : editNode?.kind === 'text'
@@ -3381,6 +3573,8 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
   const [derivationBusy, setDerivationBusy] = useState(false);
   const [clipboard, setClipboard] = useState<ClipboardPayload | null>(null);
   const [styleSourceId, setStyleSourceId] = useState<string | null>(null);
+  const [fullShapeCatalog, setFullShapeCatalog] = useState<FullShapeCatalogModule>();
+  const [starterTemplateModule, setStarterTemplateModule] = useState<StarterTemplatesModule>();
   const transactionCounter = useRef(0);
   const commandDispatcher = useRef<(commandId: string) => void>(() => undefined);
   const quickInsertInputRef = useRef<HTMLInputElement | null>(null);
@@ -3390,35 +3584,85 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
   const documentPathRef = useRef(documentPath);
   documentPathRef.current = documentPath;
   const liveSessionRef = useRef<LiveDocumentSession | null>(null);
+  const searchCatalog = fullShapeCatalog?.searchShapeLibraries ?? searchBuiltinShapeLibraries;
+  const getCatalogEntry = fullShapeCatalog?.getShapeLibraryEntry ?? getBuiltinShapeLibraryEntry;
+  const resolveCatalogShape = fullShapeCatalog?.resolveLibraryShape ?? resolveBuiltinLibraryShape;
   const shapeResults = useMemo(
-    () => searchShapeLibraries(shapeQuery, {
+    () => searchCatalog(shapeQuery, {
       ...(shapeLibraryId === 'all' ? {} : { libraryIds: [shapeLibraryId] }),
       limit: 60,
     }),
-    [shapeLibraryId, shapeQuery],
+    [searchCatalog, shapeLibraryId, shapeQuery],
   );
   const railShapeResults = useMemo(
     () => {
       if (railShapeQuery.trim().length > 0) {
-        return searchShapeLibraries(railShapeQuery, {
+        return searchCatalog(railShapeQuery, {
           ...(railLibraryId === 'featured' ? {} : { libraryIds: [railLibraryId] }),
           limit: 18,
         });
       }
       return railLibraryId === 'featured'
         ? []
-        : searchShapeLibraries('', { libraryIds: [railLibraryId], limit: 18 });
+        : searchCatalog('', { libraryIds: [railLibraryId], limit: 18 });
     },
-    [railLibraryId, railShapeQuery],
+    [railLibraryId, railShapeQuery, searchCatalog],
   );
   const recentShapeResults = useMemo(
-    () => preferences.recentShapes.map(catalogResultFromRef).filter(isCatalogSearchResult),
-    [preferences.recentShapes],
+    () => preferences.recentShapes
+      .map((ref) => catalogResultFromRef(ref, getCatalogEntry))
+      .filter(isCatalogSearchResult),
+    [getCatalogEntry, preferences.recentShapes],
   );
   const favoriteShapeResults = useMemo(
-    () => preferences.favoriteShapes.map(catalogResultFromRef).filter(isCatalogSearchResult),
-    [preferences.favoriteShapes],
+    () => preferences.favoriteShapes
+      .map((ref) => catalogResultFromRef(ref, getCatalogEntry))
+      .filter(isCatalogSearchResult),
+    [getCatalogEntry, preferences.favoriteShapes],
   );
+
+  useEffect(() => {
+    const shouldLoadFullCatalog =
+      shapeManagerOpen ||
+      railShapeQuery.trim().length > 0 ||
+      (railLibraryId !== 'featured' && isDecorativeShapeLibraryId(railLibraryId)) ||
+      (shapeLibraryId !== 'all' && isDecorativeShapeLibraryId(shapeLibraryId)) ||
+      preferences.recentShapes.some((ref) => isDecorativeShapeLibraryId(ref.libraryId)) ||
+      preferences.favoriteShapes.some((ref) => isDecorativeShapeLibraryId(ref.libraryId)) ||
+      documentUsesDecorativeShapes(document);
+    if (!shouldLoadFullCatalog || fullShapeCatalog !== undefined) return;
+    let cancelled = false;
+    void loadFullShapeCatalog().then((catalog) => {
+      if (!cancelled) setFullShapeCatalog(catalog);
+    }).catch((error: unknown) => {
+      if (!cancelled) {
+        setStatus(error instanceof Error ? error.message : 'Decorative icon catalog could not be loaded');
+      }
+    });
+    return () => { cancelled = true; };
+  }, [
+    document,
+    fullShapeCatalog,
+    preferences.favoriteShapes,
+    preferences.recentShapes,
+    railLibraryId,
+    railShapeQuery,
+    shapeLibraryId,
+    shapeManagerOpen,
+  ]);
+
+  useEffect(() => {
+    if (!templateOpen || starterTemplateModule !== undefined) return;
+    let cancelled = false;
+    void loadStarterTemplates().then((templates) => {
+      if (!cancelled) setStarterTemplateModule(templates);
+    }).catch((error: unknown) => {
+      if (!cancelled) {
+        setStatus(error instanceof Error ? error.message : 'Starter templates could not be loaded');
+      }
+    });
+    return () => { cancelled = true; };
+  }, [starterTemplateModule, templateOpen]);
   liveSessionRef.current ??= new LiveDocumentSession({
     getEngine: () => engineRef.current,
     replaceEngine: (nextEngine) => {
@@ -3468,8 +3712,11 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
     () => buildSceneDescription(displayDocument, {
       pageId: activePageId,
       routingStrategy: preview === null ? 'document' : 'fast',
+      ...(fullShapeCatalog === undefined
+        ? {}
+        : { shapeResolver: fullShapeCatalog.resolveLibraryShape }),
     }),
-    [activePageId, displayDocument, preview],
+    [activePageId, displayDocument, fullShapeCatalog, preview],
   );
   const items = useMemo(
     () => selectableItems(document, activePageId, frames),
@@ -3491,15 +3738,25 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
   );
   const pages = useMemo(() => orderedPages(document), [document]);
   const activePage = document.pages[activePageId] ?? pages[0];
-  const selectedNode =
-    selection.selectedIds.length === 1
-      ? document.nodes[selection.selectedIds[0] ?? '']
-      : undefined;
-  const selectedEdge =
-    selection.selectedIds.length === 1
-      ? document.edges[selection.selectedIds[0] ?? '']
-      : undefined;
-  const selectedTextData = selectedNode?.data ?? selectedEdge?.data;
+  const selectedNodeIds = selection.selectedIds.filter((id) => document.nodes[id] !== undefined);
+  const selectedEdgeIds = selection.selectedIds.filter((id) => document.edges[id] !== undefined);
+  const selectedNodes = selectedNodeIds.map((id) => document.nodes[id]).filter((node): node is Node => node !== undefined);
+  const selectedEdges = selectedEdgeIds.map((id) => document.edges[id]).filter((edge): edge is Edge => edge !== undefined);
+  const selectedNode = selection.selectedIds.length === 1 ? selectedNodes[0] : undefined;
+  const selectedEdge = selection.selectedIds.length === 1 ? selectedEdges[0] : undefined;
+  const selectedNodeInspector = selectedNode ?? (selectedEdges.length === 0 ? selectedNodes[0] : undefined);
+  const selectedEdgeInspector = selectedEdge ?? (selectedNodes.length === 0 ? selectedEdges[0] : undefined);
+  const selectedTextData = selectedNodeInspector?.data ?? selectedEdgeInspector?.data;
+  const nodeDataMixed = (field: string): boolean =>
+    selectedNodes.length > 1 && selectedNodes.some((node) => node.data[field] !== selectedNodes[0]?.data[field]);
+  const edgeDataMixed = (field: string): boolean =>
+    selectedEdges.length > 1 && selectedEdges.some((edge) => edge.data[field] !== selectedEdges[0]?.data[field]);
+  const edgeRoutingMixed = (field: keyof NonNullable<Edge['routing']>): boolean =>
+    selectedEdges.length > 1 && selectedEdges.some((edge) => edge.routing?.[field] !== selectedEdges[0]?.routing?.[field]);
+  const selectionDataMixed = (field: string): boolean => {
+    const records = [...selectedNodes.map((node) => node.data), ...selectedEdges.map((edge) => edge.data)];
+    return records.length > 1 && records.some((record) => record[field] !== records[0]?.[field]);
+  };
   const selectedEdgeFromNode = selectedEdge === undefined
     ? undefined
     : document.nodes[document.ports[selectedEdge.fromPortId]?.nodeId ?? ''];
@@ -3510,13 +3767,17 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
   const canDistributeSelection = new Set(
     selection.selectedIds.filter((id) => frames[id] !== undefined),
   ).size >= 3;
-  const selectedNodeStyle = selectedNode === undefined ? undefined : document.styles[selectedNode.styleId];
-  const selectedFillColor = selectedNode === undefined
+  const selectedNodeStyle = selectedNodeInspector === undefined ? undefined : document.styles[selectedNodeInspector.styleId];
+  const selectedFillColor = selectedNodeInspector === undefined
     ? '#FFFFFF'
-    : editorColor(selectedNode.data.fillColor, editorColor(selectedNodeStyle?.tokens.surface, '#FFFFFF'));
-  const selectedBorderColor = selectedNode === undefined
+    : editorColor(selectedNodeInspector.data.fillColor, editorColor(selectedNodeStyle?.tokens.surface, '#FFFFFF'));
+  const selectedBorderColor = selectedNodeInspector === undefined
     ? '#64748B'
-    : editorColor(selectedNode.data.borderColor, editorColor(selectedNodeStyle?.tokens.accent, '#64748B'));
+    : editorColor(selectedNodeInspector.data.borderColor, editorColor(selectedNodeStyle?.tokens.accent, '#64748B'));
+  const selectedEdgeStyle = selectedEdgeInspector === undefined ? undefined : document.styles[selectedEdgeInspector.styleId];
+  const selectedEdgeStrokeColor = selectedEdgeInspector === undefined
+    ? '#64748B'
+    : editorColor(selectedEdgeInspector.data.strokeColor, editorColor(selectedEdgeStyle?.tokens.stroke, '#64748B'));
   const activePresetId = isTokenPresetId(document.theme?.presetId)
     ? document.theme.presetId
     : 'openchart-light';
@@ -3738,6 +3999,10 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
     (item: ShapePaletteItem, worldPosition?: InteractionPoint): string | undefined => {
       if (activePage === undefined || activeLayerId === undefined) {
         setStatus('Create a visible page layer before adding a shape');
+        return undefined;
+      }
+      if (document.layers[activeLayerId]?.locked === true) {
+        setStatus('Unlock the active layer before adding a shape');
         return undefined;
       }
       const { kind } = item;
@@ -4066,6 +4331,10 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
         setStatus('Nothing is available to paste');
         return;
       }
+      if (document.layers[activeLayerId]?.locked === true) {
+        setStatus('Unlock the active layer before pasting');
+        return;
+      }
       const existingIds: Readonly<Record<string, unknown>> = {
         ...document.nodes,
         ...document.ports,
@@ -4205,6 +4474,9 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
                       reference.y + reference.height -
                       (frame.y + frame.height),
                   };
+        if (Math.abs(delta.x) <= 1e-9 && Math.abs(delta.y) <= 1e-9) {
+          continue;
+        }
         Object.assign(
           updates,
           translateSelection(document, frames, [id], delta).updates,
@@ -4265,45 +4537,10 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
       if (siblings.length < 2) {
         return;
       }
-      let ordered = [...siblings];
-      if (mode === 'front') {
-        ordered = [
-          ...ordered.filter((node) => !selected.has(node.id)),
-          ...ordered.filter((node) => selected.has(node.id)),
-        ];
-      } else if (mode === 'back') {
-        ordered = [
-          ...ordered.filter((node) => selected.has(node.id)),
-          ...ordered.filter((node) => !selected.has(node.id)),
-        ];
-      } else if (mode === 'forward') {
-        for (let index = ordered.length - 2; index >= 0; index -= 1) {
-          const current = ordered[index];
-          const next = ordered[index + 1];
-          if (
-            current !== undefined &&
-            next !== undefined &&
-            selected.has(current.id) &&
-            !selected.has(next.id)
-          ) {
-            ordered[index] = next;
-            ordered[index + 1] = current;
-          }
-        }
-      } else {
-        for (let index = 1; index < ordered.length; index += 1) {
-          const current = ordered[index];
-          const previous = ordered[index - 1];
-          if (
-            current !== undefined &&
-            previous !== undefined &&
-            selected.has(current.id) &&
-            !selected.has(previous.id)
-          ) {
-            ordered[index - 1] = current;
-            ordered[index] = previous;
-          }
-        }
+      const ordered = reorderSiblingNodes(siblings, selection.selectedIds, mode);
+      if (ordered === undefined) {
+        setStatus('Selection is already in that position');
+        return;
       }
       commit(
         {
@@ -4332,45 +4569,207 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
   );
 
   const updateTextStyle = useCallback(
-    (
-      field: TextStyleField,
-      value: number | string | boolean,
-    ) => {
-      const nodeTargets = selection.selectedIds
-        .map((id) => document.nodes[id])
-        .filter((node): node is NonNullable<typeof node> => node !== undefined);
-      const edgeTargets = selection.selectedIds.filter((id) => document.edges[id] !== undefined);
-      const nodeOperations: Operation[] = nodeTargets.map((node): Operation => ({
-        op: 'set_node_data',
-        id: node.id,
-        data: { ...node.data, [field]: value },
-      }));
-      const edgeEnvelope = edgeTextStyleTransaction(document, {
-        txId: nextTransactionId('edge-text-style'),
-        edgeIds: edgeTargets,
+    (field: TextStyleField, value: number | string | boolean) => {
+      const envelope = createSelectionTextStyleTransaction(
+        document,
+        selection.selectedIds,
         field,
         value,
-      });
-      const operations = [
-        ...nodeOperations,
-        ...(edgeEnvelope?.ops ?? []),
-      ];
-      if (operations.length === 0) {
+        { txId: nextTransactionId('text-style') },
+      );
+      if (envelope === undefined) {
         setStatus('Select an object to format its text');
         return;
       }
-      commit(
-        {
-          txId: nextTransactionId('text-style'),
-          actor: 'user',
-          origin: 'gui',
-          baseRev: document.rev,
-          ops: operations,
-        },
-        'Text style updated',
-      );
+      commit(envelope, 'Text style updated');
     },
     [commit, document, nextTransactionId, selection.selectedIds],
+  );
+
+  const updateShapeVisualStyle = useCallback(
+    (update: ShapeVisualStyleUpdate, message: string) => {
+      const envelope = createShapeVisualStyleTransaction(
+        document,
+        selectedNodeIds,
+        update,
+        { txId: nextTransactionId('shape-style') },
+      );
+      if (envelope === undefined) {
+        setStatus(selectedNodeIds.length === 0 ? 'Select one or more shapes to style' : 'Selection already has that style');
+        return;
+      }
+      commit(envelope, message);
+    },
+    [commit, document, nextTransactionId, selectedNodeIds],
+  );
+
+  const updateConnectorVisualStyle = useCallback(
+    (update: ConnectorVisualStyleUpdate, message: string) => {
+      const envelope = createConnectorVisualStyleTransaction(
+        document,
+        selectedEdgeIds,
+        update,
+        { txId: nextTransactionId('connector-style') },
+      );
+      if (envelope === undefined) {
+        setStatus(selectedEdgeIds.length === 0 ? 'Select one or more connectors to style' : 'Selection already has that style');
+        return;
+      }
+      commit(envelope, message);
+    },
+    [commit, document, nextTransactionId, selectedEdgeIds],
+  );
+
+  const renderTextFormattingControls = (
+    data: Node['data'],
+    mixed: (field: string) => boolean,
+  ): ReactNode => (
+    <div className="oc-style-panel-section">
+      <div className="oc-section-title">Text</div>
+      <div className="oc-style-grid">
+        <label className="oc-field oc-field-wide">
+          <span>Font</span>
+          <select
+            aria-label="Inspector font family"
+            value={typeof data.fontFamily === 'string' ? data.fontFamily : 'Aptos Display, Segoe UI, sans-serif'}
+            onChange={(event) => updateTextStyle('fontFamily', event.currentTarget.value)}
+          >
+            <option value="Aptos Display, Segoe UI, sans-serif">Aptos</option>
+            <option value="Segoe UI, Arial, sans-serif">Segoe UI</option>
+            <option value="Arial, sans-serif">Arial</option>
+            <option value="Georgia, serif">Georgia</option>
+            <option value="Cascadia Code, Consolas, monospace">Cascadia Code</option>
+            <option value="Consolas, monospace">Consolas</option>
+          </select>
+          {mixed('fontFamily') ? <small className="oc-mixed-note">Mixed</small> : null}
+        </label>
+        <label className="oc-field">
+          <span>Size</span>
+          <input type="number" min={8} max={96} step={1}
+            value={typeof data.fontSize === 'number' ? data.fontSize : 18}
+            onChange={(event) => updateTextStyle('fontSize', clamp(Number(event.currentTarget.value), 8, 96))} />
+        </label>
+        <label className="oc-field">
+          <span>Line height</span>
+          <input type="number" min={0.8} max={3} step={0.05}
+            value={typeof data.lineHeight === 'number' ? data.lineHeight : 1.2}
+            onChange={(event) => updateTextStyle('lineHeight', clamp(Number(event.currentTarget.value), 0.8, 3))} />
+        </label>
+      </div>
+      <div className="oc-text-format oc-text-format-wide">
+        <button type="button" aria-pressed={data.fontWeight === 700} className={data.fontWeight === 700 ? 'is-active' : ''}
+          onClick={() => updateTextStyle('fontWeight', data.fontWeight === 700 && !mixed('fontWeight') ? 400 : 700)}><strong>B</strong></button>
+        <button type="button" aria-pressed={data.fontStyle === 'italic'} className={data.fontStyle === 'italic' ? 'is-active' : ''}
+          onClick={() => updateTextStyle('fontStyle', data.fontStyle === 'italic' && !mixed('fontStyle') ? 'normal' : 'italic')}><em>I</em></button>
+        <button type="button" aria-pressed={data.underline === true} className={data.underline === true ? 'is-active' : ''}
+          onClick={() => updateTextStyle('underline', !(data.underline === true && !mixed('underline')))}><span style={{ textDecoration: 'underline' }}>U</span></button>
+        {(['left', 'center', 'right'] as const).map((alignment) => (
+          <button type="button" key={alignment} aria-pressed={data.textAlign === alignment && !mixed('textAlign')}
+            className={data.textAlign === alignment && !mixed('textAlign') ? 'is-active' : ''}
+            onClick={() => updateTextStyle('textAlign', alignment)} title={`Align ${alignment}`}>{alignment === 'left' ? '≡←' : alignment === 'right' ? '→≡' : '≡'}</button>
+        ))}
+      </div>
+      <ColorControl
+        label="Text"
+        value={editorColor(data.textColor, '#0F172A')}
+        mixed={mixed('textColor')}
+        onChange={(value) => updateTextStyle('textColor', value)}
+      />
+    </div>
+  );
+
+  const renderShapeAppearanceControls = (node: Node): ReactNode => (
+    <div className="oc-style-panel-section">
+      <div className="oc-section-title">Appearance</div>
+      <ColorControl label="Fill" value={selectedFillColor} mixed={nodeDataMixed('fillColor')}
+        onChange={(value) => updateShapeVisualStyle({ fillColor: value }, 'Shape fill updated')} />
+      <ColorControl label="Border" value={selectedBorderColor} mixed={nodeDataMixed('borderColor')}
+        onChange={(value) => updateShapeVisualStyle({ borderColor: value }, 'Shape border updated')} />
+      <div className="oc-style-grid">
+        <label className="oc-field">
+          <span>Border width</span>
+          <input type="number" min={0.5} max={10} step={0.5}
+            value={typeof node.data.borderWidth === 'number' ? node.data.borderWidth : 1.5}
+            onChange={(event) => updateShapeVisualStyle({ borderWidth: clamp(Number(event.currentTarget.value), 0.5, 10) }, 'Border width updated')} />
+          {nodeDataMixed('borderWidth') ? <small className="oc-mixed-note">Mixed</small> : null}
+        </label>
+        <label className="oc-field">
+          <span>Border</span>
+          <select value={typeof node.data.borderStyle === 'string' ? node.data.borderStyle : 'solid'}
+            onChange={(event) => updateShapeVisualStyle({ borderStyle: event.currentTarget.value as 'solid' | 'dashed' | 'dotted' }, 'Border pattern updated')}>
+            <option value="solid">Solid</option><option value="dashed">Dashed</option><option value="dotted">Dotted</option>
+          </select>
+          {nodeDataMixed('borderStyle') ? <small className="oc-mixed-note">Mixed</small> : null}
+        </label>
+        <label className="oc-field">
+          <span>Roundness</span>
+          <input type="number" min={0} max={64} step={1}
+            value={typeof node.data.cornerRadius === 'number' ? node.data.cornerRadius : 10}
+            onChange={(event) => updateShapeVisualStyle({ cornerRadius: clamp(Number(event.currentTarget.value), 0, 64) }, 'Corner rounding updated')} />
+          {nodeDataMixed('cornerRadius') ? <small className="oc-mixed-note">Mixed</small> : null}
+        </label>
+        <label className="oc-field">
+          <span>Opacity %</span>
+          <input type="number" min={10} max={100} step={5}
+            value={Math.round((typeof node.data.opacity === 'number' ? node.data.opacity : 1) * 100)}
+            onChange={(event) => updateShapeVisualStyle({ opacity: clamp(Number(event.currentTarget.value) / 100, 0.1, 1) }, 'Opacity updated')} />
+          {nodeDataMixed('opacity') ? <small className="oc-mixed-note">Mixed</small> : null}
+        </label>
+      </div>
+      <button type="button" className={`oc-wide-button oc-toggle ${node.data.shadowEnabled === true && !nodeDataMixed('shadowEnabled') ? 'is-active' : ''}`}
+        aria-pressed={node.data.shadowEnabled === true && !nodeDataMixed('shadowEnabled')}
+        onClick={() => updateShapeVisualStyle({ shadowEnabled: !(node.data.shadowEnabled === true && !nodeDataMixed('shadowEnabled')) }, 'Shadow updated')}>
+        <span>Shadow</span><strong>{node.data.shadowEnabled === true && !nodeDataMixed('shadowEnabled') ? 'ON' : nodeDataMixed('shadowEnabled') ? 'MIXED' : 'OFF'}</strong>
+      </button>
+      <label className="oc-field oc-field-wide">
+        <span>Shadow strength</span>
+        <input type="range" min={0} max={1} step={0.05}
+          value={typeof node.data.shadowStrength === 'number' ? node.data.shadowStrength : 0.45}
+          onChange={(event) => updateShapeVisualStyle({ shadowEnabled: true, shadowStrength: clamp(Number(event.currentTarget.value), 0, 1) }, 'Shadow strength updated')} />
+        {nodeDataMixed('shadowStrength') ? <small className="oc-mixed-note">Mixed</small> : null}
+      </label>
+    </div>
+  );
+
+  const renderConnectorAppearanceControls = (edge: Edge): ReactNode => (
+    <div className="oc-style-panel-section">
+      <div className="oc-section-title">Appearance</div>
+      <ColorControl label="Line" value={selectedEdgeStrokeColor} mixed={edgeDataMixed('strokeColor')}
+        onChange={(value) => updateConnectorVisualStyle({ strokeColor: value }, 'Connector color updated')} />
+      <div className="oc-style-grid">
+        <label className="oc-field"><span>Width</span><input type="number" min={0.5} max={10} step={0.5}
+          value={edge.routing?.lineWidth ?? 2.5}
+          onChange={(event) => updateConnectorVisualStyle({ lineWidth: clamp(Number(event.currentTarget.value), 0.5, 10) }, 'Connector width updated')} />
+          {edgeRoutingMixed('lineWidth') ? <small className="oc-mixed-note">Mixed</small> : null}</label>
+        <label className="oc-field"><span>Dash</span><select value={edge.routing?.lineStyle ?? 'solid'}
+          onChange={(event) => updateConnectorVisualStyle({ lineStyle: event.currentTarget.value as 'solid' | 'dashed' | 'dotted' }, 'Connector dash updated')}>
+          <option value="solid">Solid</option><option value="dashed">Dashed</option><option value="dotted">Dotted</option></select>
+          {edgeRoutingMixed('lineStyle') ? <small className="oc-mixed-note">Mixed</small> : null}</label>
+        <label className="oc-field"><span>Route</span><select value={edge.routing?.mode ?? 'orthogonal'}
+          onChange={(event) => updateConnectorVisualStyle({ mode: event.currentTarget.value as 'straight' | 'orthogonal' | 'curved' }, 'Connector route updated')}>
+          <option value="straight">Straight</option><option value="orthogonal">Orthogonal</option><option value="curved">Curved</option></select>
+          {edgeRoutingMixed('mode') ? <small className="oc-mixed-note">Mixed</small> : null}</label>
+        <label className="oc-field"><span>Corner</span><input type="number" min={0} max={64} step={1} value={edge.routing?.cornerRadius ?? 9}
+          onChange={(event) => updateConnectorVisualStyle({ cornerRadius: clamp(Number(event.currentTarget.value), 0, 64) }, 'Connector corners updated')} /></label>
+      </div>
+      <div className="oc-style-grid">
+        {(['startMarker', 'endMarker'] as const).map((field) => (
+          <label className="oc-field" key={field}><span>{field === 'startMarker' ? 'Start' : 'End'}</span>
+            <select value={edge.routing?.[field] ?? (field === 'startMarker' ? 'none' : 'arrow')}
+              onChange={(event) => {
+                const marker = event.currentTarget.value;
+                if (!isConnectorMarker(marker)) return;
+                updateConnectorVisualStyle(
+                  field === 'startMarker' ? { startMarker: marker } : { endMarker: marker },
+                  `Connector ${field === 'startMarker' ? 'start' : 'end'} updated`,
+                );
+              }}>
+              <option value="none">None</option><option value="arrow">Arrow</option><option value="open-arrow">Open arrow</option>
+              <option value="circle">Dot</option><option value="diamond">Diamond</option><option value="bar">Bar</option><option value="crow-foot">Crow's foot</option>
+            </select>{edgeRoutingMixed(field) ? <small className="oc-mixed-note">Mixed</small> : null}</label>
+        ))}
+      </div>
+    </div>
   );
 
   const announceNavigation = useCallback(
@@ -4515,6 +4914,9 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
       const nextScene = buildSceneDescription(nextEngine.document, {
         pageId,
         routingStrategy: 'document',
+        ...(fullShapeCatalog === undefined
+          ? {}
+          : { shapeResolver: fullShapeCatalog.resolveLibraryShape }),
       });
       liveSession.reset(nextEngine);
       documentPathRef.current = opened.path;
@@ -4532,7 +4934,7 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
       setOutputOpen(false);
       transactionCounter.current = 0;
     },
-    [liveSession, viewport],
+    [fullShapeCatalog, liveSession, viewport],
   );
 
   const openDocument = useCallback(async (): Promise<void> => {
@@ -4566,6 +4968,10 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
     async (file: File): Promise<void> => {
       setFileBusy(true);
       try {
+        if (file.size > MAX_BROWSER_DOCUMENT_BYTES) {
+          setStatus('The selected file exceeds the 32 MiB document limit');
+          return;
+        }
         const opened = parseDesktopDocument(await file.text());
         replaceEditorDocument({ document: opened, browserName: file.name });
         setStatus(`Opened ${file.name}`);
@@ -4586,6 +4992,10 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
       }
       setFileBusy(true);
       try {
+        if (file.size > MAX_BROWSER_DOCUMENT_BYTES) {
+          setStatus('The selected file exceeds the 32 MiB document limit');
+          return;
+        }
         const source = parseDesktopDocument(await file.text());
         const imported = createOpenChartPageImportTransaction(document, source, {
           txId: nextTransactionId('import-openchart'),
@@ -4659,7 +5069,11 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
         if (nodeIds.length === 0) {
           return;
         }
-        commitTransform(translateSelection(document, frames, nodeIds, { x, y }));
+        try {
+          commitTransform(translateSelection(document, frames, nodeIds, { x, y }));
+        } catch {
+          setStatus('Show the hidden layer before nudging its shapes');
+        }
       };
       switch (commandId) {
         case 'open-document':
@@ -4849,29 +5263,36 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
           {
             const nodeIds = selection.selectedIds.filter((id) => document.nodes[id] !== undefined);
             if (nodeIds.length > 0) {
-            const payload = createClipboardPayload(document, nodeIds, frames);
-            setClipboard(payload);
-            const existingIds: Readonly<Record<string, unknown>> = {
-              ...document.nodes,
-              ...document.ports,
-              ...document.edges,
-            };
-            const reservedIds = new Set<string>();
-            if (activePage !== undefined && activeLayerId !== undefined) {
-              const paste = createPasteTransaction(document, payload, {
-                txId: nextTransactionId('duplicate'),
-                pageId: activePage.id,
-                layerId: activeLayerId,
-                offset: { x: 24, y: 24 },
-                allocateId: (_kind, sourceId) => allocateCopyId(existingIds, reservedIds, sourceId),
-                allocateUid: () => makeUid(),
-              });
-              commit(paste.envelope, 'Duplicated selection', {
-                scopeId: selection.scopeId,
-                selectedIds: paste.pastedRootNodeIds,
-              });
+              if (
+                activePage !== undefined &&
+                activeLayerId !== undefined &&
+                document.layers[activeLayerId]?.locked === true
+              ) {
+                setStatus('Unlock the active layer before duplicating');
+                return;
+              }
+              const payload = createClipboardPayload(document, nodeIds, frames);
+              const existingIds: Readonly<Record<string, unknown>> = {
+                ...document.nodes,
+                ...document.ports,
+                ...document.edges,
+              };
+              const reservedIds = new Set<string>();
+              if (activePage !== undefined && activeLayerId !== undefined) {
+                const paste = createPasteTransaction(document, payload, {
+                  txId: nextTransactionId('duplicate'),
+                  pageId: activePage.id,
+                  layerId: activeLayerId,
+                  offset: { x: 24, y: 24 },
+                  allocateId: (_kind, sourceId) => allocateCopyId(existingIds, reservedIds, sourceId),
+                  allocateUid: () => makeUid(),
+                });
+                commit(paste.envelope, 'Duplicated selection', {
+                  scopeId: selection.scopeId,
+                  selectedIds: paste.pastedRootNodeIds,
+                });
+              }
             }
-          }
           }
           return;
         case 'copy-style':
@@ -5323,11 +5744,19 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
   }, [linkEditor, outputOpen, preferencesOpen, shapeManagerOpen, shortcutOpen, templateOpen]);
 
   useEffect(() => {
-    if (document.pages[activePageId] === undefined) {
-      setActivePageId(orderedPages(document)[0]?.id ?? '');
-      setSelection(createSelectionState());
-    }
-  }, [activePageId, document]);
+    const selectionStale = (id: string): boolean => {
+      const layerId = document.nodes[id]?.layerId ?? document.edges[id]?.layerId;
+      const layer = layerId === undefined ? undefined : document.layers[layerId];
+      return layer?.locked === true || layer?.visible !== true;
+    };
+    setSelection((current) => {
+      if (!current.selectedIds.some(selectionStale)) return current;
+      return {
+        scopeId: current.scopeId,
+        selectedIds: current.selectedIds.filter((id) => !selectionStale(id)),
+      };
+    });
+  }, [document]);
 
   useEffect(() => {
     if (!findOpen || findMatches.length === 0 || findCursor >= 0) {
@@ -5686,6 +6115,7 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
     try {
       const format = preferences.exportFormat;
       if (format === 'd2' || format === 'mermaid') {
+        const { createBrowserTextExport } = await loadBrowserTextExport();
         const exported = createBrowserTextExport(document, format, activePage?.id);
         downloadBlob(
           new Blob([exported.content], { type: exported.mimeType }),
@@ -5727,29 +6157,37 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
     }
   };
 
-  const chooseTemplate = (templateId: StarterTemplateId | 'blank'): void => {
+  const chooseTemplate = async (templateId: StarterTemplateId | 'blank'): Promise<void> => {
     if (activePage === undefined || activeLayerId === undefined) {
       setStatus('Create a visible page layer before applying a starter');
       return;
     }
     if (templateId === 'blank') {
-      const envelope = createBlankPageTransaction(document, {
-        txId: nextTransactionId('blank-template'),
-        pageId: activePage.id,
-      });
-      if (envelope !== undefined) {
-        if (!commit(envelope, 'Blank canvas applied', createSelectionState())) {
-          return;
-        }
-      } else {
-        setStatus('Canvas is already blank');
+      if (activePage.layerIds.some((id) => document.layers[id]?.locked === true)) {
+        setStatus('Unlock all page layers before clearing the canvas');
+        return;
       }
-      setTemplateOpen(false);
+    } else if (document.layers[activeLayerId]?.locked === true) {
+      setStatus('Unlock the active layer before applying a template');
       return;
     }
     try {
-      const template = getStarterTemplate(templateId);
-      const transaction = createStarterTemplateTransaction(document, template, {
+      const templates = starterTemplateModule ?? await loadStarterTemplates();
+      if (templateId === 'blank') {
+        const envelope = templates.createBlankPageTransaction(document, {
+          txId: nextTransactionId('blank-template'),
+          pageId: activePage.id,
+        });
+        if (envelope !== undefined) {
+          if (!commit(envelope, 'Blank canvas applied', createSelectionState())) return;
+        } else {
+          setStatus('Canvas is already blank');
+        }
+        setTemplateOpen(false);
+        return;
+      }
+      const template = templates.getStarterTemplate(templateId);
+      const transaction = templates.createStarterTemplateTransaction(document, template, {
         txId: nextTransactionId(`template-${template.id}`),
         pageId: activePage.id,
         layerId: activeLayerId,
@@ -6121,7 +6559,7 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
                   }}
                   title={`Insert ${result.entry.name}`}
                 >
-                  <span className="oc-rail-result-preview"><CatalogShapePreview result={result} /></span>
+                  <span className="oc-rail-result-preview"><CatalogShapePreview result={result} resolveShape={resolveCatalogShape} /></span>
                   <span className="oc-rail-result-copy">
                     <strong>{result.entry.name}</strong>
                     <small>{SHAPE_LIBRARIES.find((library) => library.id === result.libraryId)?.label ?? result.libraryId}</small>
@@ -6155,7 +6593,7 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
                     title={`Add ${result.entry.name}`}
                     aria-label={`Add favorite ${result.entry.name}`}
                   >
-                    <span className="oc-mini-shape-preview"><CatalogShapePreview result={result} /></span>
+                    <span className="oc-mini-shape-preview"><CatalogShapePreview result={result} resolveShape={resolveCatalogShape} /></span>
                   </button>
                 ))}
               </div>
@@ -6173,7 +6611,7 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
                     title={`Add ${result.entry.name}`}
                     aria-label={`Add recent ${result.entry.name}`}
                   >
-                    <span className="oc-mini-shape-preview"><CatalogShapePreview result={result} /></span>
+                    <span className="oc-mini-shape-preview"><CatalogShapePreview result={result} resolveShape={resolveCatalogShape} /></span>
                   </button>
                 ))}
               </div>
@@ -6352,6 +6790,23 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
               }
             }}>Save layer view</button>
           </div>
+        ) : selectedEdges.length > 1 && selectedNodes.length === 0 && selectedEdgeInspector !== undefined ? (
+          <div className="oc-inspector-body">
+            <div className="oc-selection-summary"><span>CONNECTORS</span><strong>{selectedEdges.length} selected</strong><small>Formatting applies to every selected connector.</small></div>
+            {renderConnectorAppearanceControls(selectedEdgeInspector)}
+            {renderTextFormattingControls(selectedEdgeInspector.data, edgeDataMixed)}
+          </div>
+        ) : selectedNodes.length > 1 && selectedEdges.length === 0 && selectedNodeInspector !== undefined ? (
+          <div className="oc-inspector-body">
+            <div className="oc-selection-summary"><span>SHAPES</span><strong>{selectedNodes.length} selected</strong><small>Formatting applies to every selected shape.</small></div>
+            {renderShapeAppearanceControls(selectedNodeInspector)}
+            {renderTextFormattingControls(selectedNodeInspector.data, nodeDataMixed)}
+          </div>
+        ) : selectedNodes.length > 0 && selectedEdges.length > 0 && selectedTextData !== undefined ? (
+          <div className="oc-inspector-body">
+            <div className="oc-selection-summary"><span>MIXED SELECTION</span><strong>{selection.selectedIds.length} objects</strong><small>Shared text formatting applies across shapes and connector labels.</small></div>
+            {renderTextFormattingControls(selectedTextData, selectionDataMixed)}
+          </div>
         ) : selectedEdge !== undefined ? (
           <div className="oc-inspector-body">
             <div className="oc-selection-summary">
@@ -6391,6 +6846,12 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
                 }}
               />
             </label>
+            {renderTextFormattingControls(selectedEdge.data, edgeDataMixed)}
+            <div className="oc-style-panel-section">
+              <div className="oc-section-title">Appearance</div>
+              <ColorControl label="Line" value={selectedEdgeStrokeColor} mixed={edgeDataMixed('strokeColor')}
+                onChange={(value) => updateConnectorVisualStyle({ strokeColor: value }, 'Connector color updated')} />
+            </div>
             <div className="oc-section-title">Route</div>
             <label className="oc-field oc-field-wide">
               <span>From</span>
@@ -6748,61 +7209,9 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
                 </label>
               ) : null}
             </div>
-            <div className="oc-section-title">Text</div>
-            <div className="oc-text-format">
-              <button type="button" aria-pressed={selectedNode.data.fontWeight === 700} className={selectedNode.data.fontWeight === 700 ? 'is-active' : ''} onClick={() => executeCommand('bold')} title="Bold (Ctrl+B)"><strong>B</strong></button>
-              <button type="button" aria-pressed={selectedNode.data.fontStyle === 'italic'} className={selectedNode.data.fontStyle === 'italic' ? 'is-active' : ''} onClick={() => executeCommand('italic')} title="Italic (Ctrl+I)"><em>I</em></button>
-              <button type="button" aria-pressed={selectedNode.data.underline === true} className={selectedNode.data.underline === true ? 'is-active' : ''} onClick={() => executeCommand('underline')} title="Underline (Ctrl+U)"><span style={{ textDecoration: 'underline' }}>U</span></button>
-              <button type="button" aria-label={`Decrease font size. Current ${typeof selectedNode.data.fontSize === 'number' ? selectedNode.data.fontSize : 18} pixels`} onClick={() => executeCommand('font-size-down')} title="Decrease font size">A−</button>
-              <button type="button" aria-label={`Increase font size. Current ${typeof selectedNode.data.fontSize === 'number' ? selectedNode.data.fontSize : 18} pixels`} onClick={() => executeCommand('font-size-up')} title="Increase font size">A＋</button>
-              <button type="button" className={typeof selectedNode.data.link === 'string' && selectedNode.data.link.length > 0 ? 'is-active' : ''} onClick={() => executeCommand('link')} title="Add link (Ctrl+K)"><Icon src={linkSimpleIcon} size={15} /></button>
-            </div>
-            <label className="oc-field oc-field-wide oc-color-field">
-              <span>Color</span>
-              <input
-                type="color"
-                aria-label="Text color"
-                value={typeof selectedNode.data.textColor === 'string' && /^#[0-9a-f]{6}$/i.test(selectedNode.data.textColor)
-                  ? selectedNode.data.textColor
-                  : '#0F172A'}
-                onChange={(event) => updateTextStyle('textColor', event.currentTarget.value)}
-              />
-            </label>
-            <div className="oc-section-title">Visual role</div>
-            <div className="oc-color-grid">
-              <label className="oc-field oc-color-field">
-                <span>Fill</span>
-                <input
-                  type="color"
-                  aria-label="Shape fill color"
-                  value={selectedFillColor}
-                  onChange={(event) => commit({
-                    txId: nextTransactionId('fill-color'), actor: 'user', origin: 'gui', baseRev: document.rev,
-                    ops: [{
-                      op: 'set_node_data',
-                      id: selectedNode.id,
-                      data: { ...selectedNode.data, fillColor: event.currentTarget.value },
-                    }],
-                  }, 'Shape fill color updated')}
-                />
-              </label>
-              <label className="oc-field oc-color-field">
-                <span>Line</span>
-                <input
-                  type="color"
-                  aria-label="Shape border color"
-                  value={selectedBorderColor}
-                  onChange={(event) => commit({
-                    txId: nextTransactionId('border-color'), actor: 'user', origin: 'gui', baseRev: document.rev,
-                    ops: [{
-                      op: 'set_node_data',
-                      id: selectedNode.id,
-                      data: { ...selectedNode.data, borderColor: event.currentTarget.value },
-                    }],
-                  }, 'Shape border color updated')}
-                />
-              </label>
-            </div>
+            {renderTextFormattingControls(selectedNode.data, nodeDataMixed)}
+            {renderShapeAppearanceControls(selectedNode)}
+            <div className="oc-section-title">Style preset</div>
             <div className="oc-style-list">
               {Object.values(document.styles).sort((left, right) => compareIds(left.id, right.id)).map((style) => {
                 const accent = typeof style.tokens.accent === 'string' ? style.tokens.accent : '#64748B';
@@ -7053,7 +7462,7 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
             <p>Start blank or replace the active page with editable professional starter content. One undo restores the previous page.</p>
             <div className="oc-template-section-title">Blank</div>
             <div className="oc-template-grid">
-              <button type="button" autoFocus onClick={() => chooseTemplate('blank')}>
+              <button type="button" autoFocus onClick={() => void chooseTemplate('blank')}>
                 <span aria-hidden="true">□</span>
                 <strong>Blank canvas</strong>
                 <small>Clear the active page in one undoable action.</small>
@@ -7061,12 +7470,14 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
             </div>
             <div className="oc-template-section-title">Professional starters</div>
             <div className="oc-template-grid">
-              {STARTER_TEMPLATES.map((template) => (
+              {starterTemplateModule === undefined ? (
+                <p>Loading starter templates…</p>
+              ) : starterTemplateModule.STARTER_TEMPLATES.map((template) => (
                 <button
                   type="button"
                   key={template.id}
                   data-template-id={template.id}
-                  onClick={() => chooseTemplate(template.id)}
+                  onClick={() => void chooseTemplate(template.id)}
                 >
                   <span className="oc-template-kind">{template.section}</span>
                   <strong>{template.name}</strong>
@@ -7173,7 +7584,7 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
                   return (
                     <div className="oc-shape-result-card" key={`${result.libraryId}-${result.entry.id}`}>
                       <button type="button" className="oc-shape-result-insert" onClick={() => addCatalogShape(result)} title={`Add ${result.entry.name}`} aria-label={`Add ${result.entry.name}`}>
-                        <span className="oc-shape-preview"><CatalogShapePreview result={result} /></span>
+                        <span className="oc-shape-preview"><CatalogShapePreview result={result} resolveShape={resolveCatalogShape} /></span>
                         <span><strong>{result.entry.name}</strong><small>{SHAPE_LIBRARIES.find((library) => library.id === result.libraryId)?.label ?? result.libraryId}</small></span>
                       </button>
                       <button

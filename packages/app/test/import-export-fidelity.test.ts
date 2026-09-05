@@ -4,14 +4,14 @@ import { createTransformTransaction, type TransformPreview } from '@openchart/in
 import { validateDocument, type OpenChartDocument } from '@openchart/ir';
 import { OperationEngine } from '@openchart/ops';
 
-import { createBrowserTextExport } from '../src/openchart-editor.js';
+import { createBrowserTextExport } from '../src/browser-text-export.js';
 import {
   parseDesktopDocument,
   serializeOpenChartDocument,
 } from '../src/desktop-file.js';
 import { createOpenChartPageImportTransaction } from '../src/document-import.js';
+import { createBlankInitialDocument } from '../src/initial-document.js';
 import {
-  createBlankInitialDocument,
   createStarterTemplateTransaction,
   getStarterTemplate,
 } from '../src/starter-templates.js';

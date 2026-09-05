@@ -9,6 +9,7 @@ import { OperationEngine, type OperationEnvelope } from '@openchart/ops';
 
 import {
   distributeSelectionPreview,
+  reorderSiblingNodes,
   type DistributionMode,
 } from '../src/openchart-editor.js';
 
@@ -252,5 +253,22 @@ describe('distribution commands', () => {
     expect(coordinate(engine.document, 'node.b', 'x')).toBe(120);
     expect(engine.undo()).toMatchObject({ ok: true });
     expect(coordinate(engine.document, 'node.b', 'x')).toBe(90);
+  });
+
+  it('reports no reorder when the selection is already in position', () => {
+    const document = distributionDocument();
+    const siblings = IDS.map((id) => {
+      const node = document.nodes[id];
+      if (node === undefined) throw new Error(`Missing fixture node ${id}`);
+      return node;
+    });
+    expect(reorderSiblingNodes(siblings, ['node.c', 'node.d'], 'front')).toBeUndefined();
+    expect(reorderSiblingNodes(siblings, ['node.a', 'node.b'], 'back')).toBeUndefined();
+    expect(reorderSiblingNodes(siblings, ['node.b'], 'forward')?.map((node) => node.id))
+      .toEqual(['node.a', 'node.c', 'node.b', 'node.d']);
+    expect(reorderSiblingNodes(siblings, ['node.c'], 'backward')?.map((node) => node.id))
+      .toEqual(['node.a', 'node.c', 'node.b', 'node.d']);
+    expect(reorderSiblingNodes(siblings, ['node.a', 'node.c'], 'front')?.map((node) => node.id))
+      .toEqual(['node.b', 'node.d', 'node.a', 'node.c']);
   });
 });

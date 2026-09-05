@@ -130,6 +130,25 @@ describe('shape discovery and insertion', () => {
     ).toBe(true);
   });
 
+  it('ships broad native cloud families with current service search coverage', () => {
+    for (const libraryId of ['aws', 'azure', 'gcp'] as const) {
+      const library = listShapeLibraries().find((candidate) => candidate.id === libraryId);
+      expect(library?.entries).toHaveLength(50);
+    }
+    for (const [query, libraryId, entryId] of [
+      ['bedrock generative ai', 'aws', 'aws.bedrock'],
+      ['foundry generative ai', 'azure', 'azure.ai-foundry'],
+      ['vertex ai generative', 'gcp', 'gcp.vertex-ai'],
+      ['cloud armor waf', 'gcp', 'gcp.cloud-armor'],
+      ['entra identity', 'azure', 'azure.entra-id'],
+      ['eventbridge event bus', 'aws', 'aws.eventbridge'],
+    ] as const) {
+      expect(searchShapeLibraries(query, { limit: 20 }).some(
+        (result) => result.libraryId === libraryId && result.entry.id === entryId,
+      ), `${libraryId}:${entryId}`).toBe(true);
+    }
+  });
+
   it('resolves professional cloud, UML, and ERD entries with real geometry and ports', () => {
     for (const [libraryId, entryId] of [
       ['architecture', 'architecture.api-gateway'],

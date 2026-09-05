@@ -4,7 +4,7 @@ import { validateDocument } from '@openchart/ir';
 import northstarInput from '../../../examples/northstar-integration.openchart.json';
 
 import { OpenChartEditor } from './index.js';
-import { createBlankInitialDocument } from './starter-templates.js';
+import { createBlankInitialDocument } from './initial-document.js';
 import './openchart-editor.css';
 
 const rootElement = document.getElementById('root');

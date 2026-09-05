@@ -110,6 +110,7 @@ export interface SceneCircleItem extends SceneItemBase {
   readonly stroke?: string;
   readonly strokeOpacity?: number;
   readonly strokeWidth?: number;
+  readonly dash?: readonly number[];
 }
 
 export interface SceneEllipseItem extends SceneItemBase {
@@ -122,6 +123,7 @@ export interface SceneEllipseItem extends SceneItemBase {
   readonly stroke?: string;
   readonly strokeOpacity?: number;
   readonly strokeWidth?: number;
+  readonly dash?: readonly number[];
 }
 
 export interface ScenePolygonItem extends SceneItemBase {
@@ -132,6 +134,7 @@ export interface ScenePolygonItem extends SceneItemBase {
   readonly stroke?: string;
   readonly strokeOpacity?: number;
   readonly strokeWidth?: number;
+  readonly dash?: readonly number[];
 }
 
 export type ScenePathCommand =
@@ -282,6 +285,11 @@ interface RoutedEdge {
 interface NodeStyle {
   readonly accent: string;
   readonly surface: string;
+  readonly borderWidth?: number;
+  readonly borderDash?: readonly number[];
+  readonly cornerRadius?: number;
+  readonly opacity: number;
+  readonly shadowStrength: number;
 }
 
 interface EdgeStyle {
@@ -639,7 +647,15 @@ function fallbackNodeSurface(node: Node, style: Style | undefined): string {
   }
 }
 
+function nodeBorderDash(node: Node): readonly number[] | undefined {
+  const pattern = readString(node.data, 'borderStyle');
+  return pattern === 'dashed' ? [8, 6] : pattern === 'dotted' ? [2, 5] : undefined;
+}
+
 function nodeStyle(node: Node, style: Style | undefined): NodeStyle {
+  const borderDash = nodeBorderDash(node);
+  const borderWidth = readNumber(node.data, 'borderWidth');
+  const cornerRadius = readNumber(node.data, 'cornerRadius');
   return {
     accent:
       safeColor(readString(node.data, 'borderColor')) ??
@@ -649,7 +665,112 @@ function nodeStyle(node: Node, style: Style | undefined): NodeStyle {
       safeColor(readString(node.data, 'fillColor')) ??
       safeColor(readString(style?.tokens, 'surface')) ??
       fallbackNodeSurface(node, style),
+    ...(borderWidth === undefined ? {} : { borderWidth: clamp(borderWidth, 0.5, 10) }),
+    ...(borderDash === undefined ? {} : { borderDash }),
+    ...(cornerRadius === undefined ? {} : { cornerRadius: clamp(cornerRadius, 0, 64) }),
+    opacity: clamp(readNumber(node.data, 'opacity') ?? 1, 0.1, 1),
+    shadowStrength: node.data.shadowEnabled === true
+      ? clamp(readNumber(node.data, 'shadowStrength') ?? 0.45, 0, 1)
+      : 0,
   };
+}
+
+function nodeShadow(node: Node, bounds: Bounds, style: NodeStyle): SceneRectItem | undefined {
+  if (style.shadowStrength <= 0) return undefined;
+  const offset = 2 + style.shadowStrength * 6;
+  return {
+    type: 'rect',
+    id: `node-${sanitizeId(node.id)}-shadow`,
+    frame: { x: bounds.x + offset, y: bounds.y + offset, width: bounds.width, height: bounds.height },
+    radius: style.cornerRadius ?? 10,
+    fill: '#0F172A',
+    fillOpacity: 0.08 + style.shadowStrength * 0.18,
+  };
+}
+
+function isConnectorAnchorNode(node: Node): boolean {
+  return node.kind === 'connector-anchor' && node.data.connectorAnchor === true;
+}
+
+function renderAnchorNode(node: Node, bounds: Bounds, style: NodeStyle): SceneGroup {
+  const nodeId = `node-${sanitizeId(node.id)}`;
+  return {
+    type: 'group',
+    id: nodeId,
+    role: 'node',
+    entityId: node.id,
+    ariaLabel: nodeAriaLabel(node, node.label),
+    opacity: style.opacity,
+    children: [
+      {
+        type: 'circle',
+        id: `${nodeId}-anchor`,
+        center: nodeCenter(bounds),
+        radius: 4,
+        fill: style.accent,
+      },
+    ],
+  };
+}
+
+function restyleLibraryItem(item: SceneItem, node: Node, bounds: Bounds, style: NodeStyle): SceneItem {
+  if (item.type === 'group') {
+    return { ...item, children: item.children.map((child) => restyleLibraryItem(child, node, bounds, style)) };
+  }
+  if (item.type === 'text' && item.value === node.label) {
+    const fontFamily = readString(node.data, 'fontFamily');
+    const fontSize = readNumber(node.data, 'fontSize');
+    const fontWeight = readNumber(node.data, 'fontWeight');
+    const textColor = safeColor(node.data.textColor);
+    const alignment = readString(node.data, 'textAlign');
+    return {
+      ...item,
+      ...(fontFamily === undefined ? {} : { fontFamily }),
+      ...(fontSize === undefined ? {} : { fontSize: clamp(fontSize, 8, 96) }),
+      ...(fontWeight === undefined ? {} : { fontWeight: clamp(fontWeight, 100, 900) }),
+      ...(readString(node.data, 'fontStyle') === 'italic' ? { fontStyle: 'italic' as const } : {}),
+      ...(node.data.underline === true ? { underline: true } : {}),
+      ...(textColor === undefined ? {} : { fill: textColor }),
+      ...(alignment === 'center' ? { anchor: 'middle' as const } : alignment === 'right' ? { anchor: 'end' as const } : alignment === 'left' ? { anchor: 'start' as const } : {}),
+    };
+  }
+  const mainStroke = 'stroke' in item && item.stroke === style.accent;
+  if (!mainStroke) return item;
+  const borderStyle = readString(node.data, 'borderStyle');
+  if (item.type === 'rect') {
+    const isMainBody = item.frame.width >= bounds.width * 0.75 && item.frame.height >= bounds.height * 0.45;
+    if (borderStyle === 'solid') {
+      const rest = { ...item };
+      delete rest.dash;
+      return {
+        ...rest,
+        ...(style.borderWidth === undefined ? {} : { strokeWidth: style.borderWidth }),
+        ...(style.cornerRadius === undefined || !isMainBody ? {} : { radius: style.cornerRadius }),
+      };
+    }
+    return {
+      ...item,
+      ...(style.borderWidth === undefined ? {} : { strokeWidth: style.borderWidth }),
+      ...(style.cornerRadius === undefined || !isMainBody ? {} : { radius: style.cornerRadius }),
+      ...((borderStyle === 'dashed' || borderStyle === 'dotted') && style.borderDash !== undefined ? { dash: style.borderDash } : {}),
+    };
+  }
+  if (item.type === 'circle' || item.type === 'ellipse' || item.type === 'polygon' || item.type === 'path') {
+    if (borderStyle === 'solid') {
+      const rest = { ...item };
+      delete rest.dash;
+      return {
+        ...rest,
+        ...(style.borderWidth === undefined ? {} : { strokeWidth: style.borderWidth }),
+      };
+    }
+    return {
+      ...item,
+      ...(style.borderWidth === undefined ? {} : { strokeWidth: style.borderWidth }),
+      ...((borderStyle === 'dashed' || borderStyle === 'dotted') && style.borderDash !== undefined ? { dash: style.borderDash } : {}),
+    };
+  }
+  return item;
 }
 
 function renderLibraryNode(
@@ -699,11 +820,18 @@ function renderLibraryNode(
       `Node ${JSON.stringify(node.id)} shape ${JSON.stringify(`${libraryId}/${entryId}`)} could not be evaluated: ${JSON.stringify(evaluated.diagnostics)}`,
     );
   }
+  const group = evaluatedShapeToSceneGroup({ id: node.id, shape: evaluated.shape });
+  const shadow = nodeShadow(node, bounds, style);
   return {
-    ...evaluatedShapeToSceneGroup({ id: node.id, shape: evaluated.shape }),
+    ...group,
     role: 'node',
     entityId: node.id,
     ariaLabel: nodeAriaLabel(node, node.label),
+    opacity: style.opacity,
+    children: [
+      ...(shadow === undefined ? [] : [shadow]),
+      ...group.children.map((item) => restyleLibraryItem(item, node, bounds, style)),
+    ],
   };
 }
 
@@ -724,7 +852,7 @@ function fallbackEdgeStroke(edge: Edge, style: Style | undefined): string {
 function edgeStyle(edge: Edge, style: Style | undefined): EdgeStyle {
   const role = textValue(style?.role, edge.styleId || 'flow');
   const common = {
-    stroke: safeColor(readString(style?.tokens, 'stroke')) ?? fallbackEdgeStroke(edge, style),
+    stroke: safeColor(edge.data.strokeColor) ?? safeColor(readString(style?.tokens, 'stroke')) ?? fallbackEdgeStroke(edge, style),
     label: readString(style?.tokens, 'label') ?? role,
   };
   const dash = safeDash(readString(style?.tokens, 'dash'));
@@ -1253,6 +1381,9 @@ function glyphGroup(node: Node, bounds: Bounds, accent: string): SceneGroup {
 }
 
 function renderNode(node: Node, bounds: Bounds, style: NodeStyle): SceneGroup {
+  if (isConnectorAnchorNode(node)) {
+    return renderAnchorNode(node, bounds, style);
+  }
   const data = node.data;
   const label = textValue(node.label, node.id);
   const kindClass = nodeKindClass(node);
@@ -1289,15 +1420,19 @@ function renderNode(node: Node, bounds: Bounds, style: NodeStyle): SceneGroup {
     Math.max(0, bounds.width - 38),
   );
   const statusX = bounds.x + bounds.width - statusWidth - 18;
-  const children: SceneItem[] = [
+  const children: SceneItem[] = [];
+  const shadow = nodeShadow(node, bounds, style);
+  if (shadow !== undefined) children.push(shadow);
+  children.push(
     {
       type: 'rect',
       id: `${nodeId}-card`,
       frame: bounds,
-      radius: 10,
+      radius: style.cornerRadius ?? 10,
       fill: style.surface,
       stroke: style.accent,
-      strokeWidth: 1.5,
+      strokeWidth: style.borderWidth ?? 1.5,
+      ...(style.borderDash === undefined ? {} : { dash: style.borderDash }),
       chromeCacheKey: kindClass,
     },
     {
@@ -1309,7 +1444,7 @@ function renderNode(node: Node, bounds: Bounds, style: NodeStyle): SceneGroup {
       minZoom: 0.15,
     },
     glyphGroup(node, bounds, style.accent),
-  ];
+  );
   const labels: SceneItem[] = [];
   if (eyebrow !== undefined) {
     labels.push({
@@ -1430,6 +1565,7 @@ function renderNode(node: Node, bounds: Bounds, style: NodeStyle): SceneGroup {
     role: 'node',
     entityId: node.id,
     ariaLabel: nodeAriaLabel(node, label),
+    opacity: style.opacity,
     children,
   };
 }

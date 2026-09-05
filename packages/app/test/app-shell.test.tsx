@@ -91,4 +91,32 @@ describe('OpenChart application shell', () => {
       'not a valid OpenChart document',
     );
   });
+
+  it('renders with default preferences when browser storage is unavailable', () => {
+    const validation = validateDocument(northstarInput);
+    expect(validation.ok).toBe(true);
+    if (!validation.ok) {
+      return;
+    }
+    const previousWindow = Reflect.get(globalThis, 'window');
+    Reflect.set(globalThis, 'window', {
+      localStorage: {
+        getItem(): never {
+          throw new Error('Storage blocked');
+        },
+      },
+    });
+    try {
+      const markup = renderToStaticMarkup(
+        <OpenChartEditor initialDocument={validation.document} />,
+      );
+      expect(markup).toContain('aria-label="OpenChart diagram editor"');
+    } finally {
+      if (previousWindow === undefined) {
+        Reflect.deleteProperty(globalThis, 'window');
+      } else {
+        Reflect.set(globalThis, 'window', previousWindow);
+      }
+    }
+  });
 });
