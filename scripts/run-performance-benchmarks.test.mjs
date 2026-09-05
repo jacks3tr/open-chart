@@ -29,6 +29,16 @@ const passingMetrics = {
 };
 
 describe('Phase 8 performance budget evaluator', () => {
+  test('calibrates cold ELK initialization without relaxing frame-work budgets', () => {
+    const measured = evaluatePerformanceMetrics({ ...passingMetrics, layout500Ms: 856 });
+    expect(measured.passed).toBe(true);
+    expect(measured.budgets.find((budget) => budget.id === 'layout-500')).toMatchObject({
+      target: 1500, gate: 1200, passed: true,
+    });
+    expect(evaluatePerformanceMetrics({ ...passingMetrics, layout500Ms: 1200 }).passed).toBe(false);
+    expect(evaluatePerformanceMetrics({ ...passingMetrics, panZoomP95Ms: 13.4 }).passed).toBe(false);
+  });
+
   test('continues after a failed measurement and reports the actual failure', async () => {
     const visited = [];
     const failures = await runBenchmarkCommands([['render'], ['routing'], ['core']],

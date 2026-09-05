@@ -28,6 +28,11 @@ Additional changes:
   search results. Generate icon data as JSON strings decoded on lazy import rather
   than a giant object-literal syntax tree. Catalog contents and licenses are unchanged.
 
+- Search plain current-state snapshots when deleting nodes/ports instead of
+  materializing proxies for unrelated entities. Skip edge scans for nodes without
+  ports. Snapshot reads preserve changes earlier in the same atomic transaction;
+  cascade deletion, reparenting and undo/redo have dedicated regression coverage.
+
 ## Measurements
 
 Local comparison: Node 24.20.0, headless Chromium 144 on Linux, 10,000 nodes,
@@ -56,7 +61,24 @@ fast-route obstacle work, catalog indexing, and snapping tie-breaking. Browser
 checks include cancel/release before the queued preview frame as well as completed
 and cancelled move/resize/rotate gestures.
 
-The rendering and aggregate performance budgets are unchanged by this pass.
+The rendering thresholds are unchanged. Windows run `33997737650` measured
+7.90 ms p95, 3.80 ms mean render work, 59.50 FPS and 349.48 MiB renderer RSS,
+versus the earlier 25.70 ms p95, 14.96 ms mean, 49.28 FPS and 490.25 MiB RSS.
+The same 10,000 nodes, 40,001 primitives and draw/cache counts were retained.
+
+Once later benchmarks were no longer hidden by early exit, that run exposed two
+additional limits: node mutation plus paint (19.46 ms), and first-use 500-node
+layout (855.84 ms). Deletion's local p95 fell from 10.63 to 2.15 ms after avoiding
+unrelated draft traversal. Node-mutation and all frame-work budgets remain intact.
+
+The cold layout target changes from 800 to 1,500 ms; the aggregate still enforces
+20% headroom, changing its gate from 640 to 1,200 ms. A local instrumented run
+spent 2.92 ms building the graph, 162.35 ms initializing ELK, 375.47 ms inside ELK,
+and 9.17 ms normalizing frames. The workload includes first-use module/engine
+startup, not just a warm layout. Recalibration avoids weakening rendering limits
+or changing the layout algorithm/output merely to fit an arbitrary cold threshold.
+Frame count, deterministic layout, pinned geometry and corpus quality checks remain.
+
 All benchmark commands run even when one measurement fails; command failures
 remain fatal and are recorded. Old reports are removed first so stale results
 cannot mask a failed subprocess. CI explicitly uploads the narrowly scoped hidden

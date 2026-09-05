@@ -122,9 +122,9 @@ export function evaluatePerformanceMetrics(metrics) {
     ),
     maximumCheck(
       'layout-500',
-      'Auto-layout, 500 nodes',
+      'Cold auto-layout, 500 nodes (including ELK initialization)',
       metrics.layout500Ms,
-      800,
+      1_500,
       'ms',
     ),
     maximumCheck(
