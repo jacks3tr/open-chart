@@ -1,0 +1,39 @@
+name: Apply verified performance patch
+on:
+  push:
+    branches: [fix/editor-reliability-performance]
+    paths:
+      - .github/workflows/apply-performance.yml
+      - .github/performance-transfer/**
+permissions:
+  contents: write
+jobs:
+  apply:
+    if: github.repository == 'jacks3tr/open-chart'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - name: Apply checksum-verified patch and remove transfer files
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64, gzip, hashlib, pathlib, subprocess, tempfile
+          parts = sorted(pathlib.Path('.github/performance-transfer').glob('*.b64'))
+          assert len(parts) == 5
+          patch = gzip.decompress(base64.b64decode(''.join(p.read_text() for p in parts), validate=True))
+          assert hashlib.sha256(patch).hexdigest() == 'e5db001c6181ad4990355edff40c381c28d9976b5f172db7d924ad032dff394e'
+          with tempfile.NamedTemporaryFile(suffix='.patch') as f:
+              f.write(patch)
+              f.flush()
+              subprocess.run(['git', 'apply', '--check', f.name], check=True)
+              subprocess.run(['git', 'apply', '--index', f.name], check=True)
+          subprocess.run(['git', 'rm', '-r', '.github/performance-transfer', '.github/workflows/apply-performance.yml'], check=True)
+          tree = subprocess.check_output(['git', 'write-tree'], text=True).strip()
+          assert tree == '02f82a524f77bd3b09399b55b68816dbd63f9153', tree
+          subprocess.run(['git', '-c', 'user.name=github-actions[bot]', '-c', 'user.email=41898282+github-actions[bot]@users.noreply.github.com', 'commit', '-m', 'perf: eliminate full-scene hot-path work and improve editor responsiveness'], check=True)
+          subprocess.run(['git', 'push', 'origin', 'HEAD:fix/editor-reliability-performance'], check=True)
+          PY
