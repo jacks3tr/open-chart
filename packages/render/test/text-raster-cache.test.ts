@@ -90,6 +90,21 @@ function textScene(): SceneDescription {
 }
 
 describe('CanvasTextRasterCache', () => {
+  it('does not reset target font state when blitting cached text', () => {
+    const target = recordingContext({ width: 40 });
+    const cache = new CanvasTextRasterCache((width, height) => ({
+      width, height, context: recordingContext({ width: 40 }).context,
+      blit: () => undefined,
+    }));
+    const renderer = new SceneViewportRenderer(textScene());
+    const camera = { x: 0, y: 0, zoom: 1, viewportWidth: 300, viewportHeight: 100 };
+    renderer.paint(target.context, camera, { textCache: cache });
+    target.context.font = 'unchanged';
+    renderer.paint(target.context, camera, { textCache: cache });
+    expect(target.context.font).toBe('unchanged');
+    expect(target.measurementCount()).toBe(1);
+  });
+
   it('bounds measured text entries as labels change during a long editing session', () => {
     const target = recordingContext({ width: 40 });
     const cache = new CanvasTextRasterCache((width, height) => ({

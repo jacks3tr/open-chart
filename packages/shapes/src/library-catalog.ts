@@ -15,6 +15,13 @@ import { validateShapeDefinition } from './schema.js';
 import { SHAPE_DEFINITION_VERSION, type ShapeDefinition } from './types.js';
 
 export function createShapeLibraryCatalog(catalogLibraries: readonly ShapeLibrary[]) {
+  // Catalogs are immutable. Build entry indices lazily so unused libraries cost no traversal.
+  const librariesById = new Map<string, ShapeLibrary>();
+  const entriesByLibrary = new Map<string, ReadonlyMap<string, ShapeLibraryEntry>>();
+  for (const library of catalogLibraries) {
+    if (!librariesById.has(library.id)) librariesById.set(library.id, library);
+  }
+
   function colorIsValid(value: string): boolean {
     return /^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(value);
   }
@@ -32,14 +39,25 @@ export function createShapeLibraryCatalog(catalogLibraries: readonly ShapeLibrar
   }
 
   function getShapeLibrary(id: string): ShapeLibrary | undefined {
-    return catalogLibraries.find((library) => library.id === id);
+    return librariesById.get(id);
   }
 
   function getShapeLibraryEntry(
     libraryId: string,
     entryId: string,
   ): ShapeLibraryEntry | undefined {
-    return getShapeLibrary(libraryId)?.entries.find((entry) => entry.id === entryId);
+    let entries = entriesByLibrary.get(libraryId);
+    if (entries === undefined) {
+      const library = getShapeLibrary(libraryId);
+      if (library === undefined) return undefined;
+      const index = new Map<string, ShapeLibraryEntry>();
+      for (const entry of library.entries) {
+        if (!index.has(entry.id)) index.set(entry.id, entry);
+      }
+      entriesByLibrary.set(libraryId, index);
+      entries = index;
+    }
+    return entries.get(entryId);
   }
 
   function resolveLibraryShape(
@@ -55,7 +73,7 @@ export function createShapeLibraryCatalog(catalogLibraries: readonly ShapeLibrar
         `Shape library ${JSON.stringify(libraryId)} does not exist`,
       );
     }
-    const entry = library.entries.find((candidate) => candidate.id === entryId);
+    const entry = getShapeLibraryEntry(libraryId, entryId);
     if (entry === undefined) {
       return failure(
         'ENTRY_NOT_FOUND',
@@ -157,8 +175,9 @@ export function createShapeLibraryCatalog(catalogLibraries: readonly ShapeLibrar
     const requestedLibraries =
       options.libraryIds === undefined ? undefined : new Set(options.libraryIds);
     const limit = Math.max(0, Math.min(500, Math.trunc(options.limit ?? 50)));
-    const ranked: Array<ShapeLibrarySearchResult & { readonly score: number; readonly order: number }> = [];
-    let order = 0;
+    if (!(limit > 0)) return [];
+    // Scores have five values: bounded stable buckets avoid sorting all matching entries.
+    const ranked: ShapeLibrarySearchResult[][] = [[], [], [], [], []];
     for (const library of catalogLibraries) {
       if (requestedLibraries !== undefined && !requestedLibraries.has(library.id)) {
         continue;
@@ -166,15 +185,14 @@ export function createShapeLibraryCatalog(catalogLibraries: readonly ShapeLibrar
       for (const entry of library.entries) {
         const score = entryScore(entry, normalized);
         if (score !== undefined) {
-          ranked.push({ libraryId: library.id, entry, score, order });
+          const bucket = ranked[score];
+          if (bucket !== undefined && bucket.length < limit) {
+            bucket.push({ libraryId: library.id, entry });
+          }
         }
-        order += 1;
       }
     }
-    return ranked
-      .sort((left, right) => left.score - right.score || left.order - right.order)
-      .slice(0, limit)
-      .map(({ libraryId, entry }) => ({ libraryId, entry }));
+    return ranked.flat().slice(0, limit);
   }
 
   function vectorPathIsValid(

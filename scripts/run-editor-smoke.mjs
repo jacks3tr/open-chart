@@ -169,6 +169,38 @@ try {
       assert.equal(await evaluate('window.__editorSmoke.commits'), before + 1);
     });
   }
+  for (const cancelled of [true, false]) {
+    await test(`${cancelled ? 'cancel' : 'release'} before preview frame preserves the latest gesture`, async () => {
+      const geometry = await readGeometry();
+      const x = geometry.x + geometry.width / 2;
+      const y = geometry.y + geometry.height / 2;
+      const before = await evaluate('window.__editorSmoke.commits');
+      await mouse('mouseMoved', x, y);
+      await mouse('mousePressed', x, y, 1);
+      // Dispatch a burst and its termination in one browser task; rAF cannot run between them.
+      await evaluate(`(() => {
+        const canvas = document.querySelector('.oc-canvas-overlay');
+        for (let i = 1; i <= 6; i++) canvas.dispatchEvent(new PointerEvent('pointermove', {
+          bubbles: true, pointerId: 1, clientX: ${x} + i * 10, clientY: ${y} + i * 10,
+          buttons: 1,
+        }));
+        canvas.dispatchEvent(new PointerEvent('${cancelled ? 'pointercancel' : 'pointerup'}', {
+          bubbles: true, pointerId: 1, clientX: ${x} + 60, clientY: ${y} + 60,
+        }));
+      })()`);
+      await mouse('mouseReleased', x + 60, y + 60);
+      await settle();
+      assert.equal(await evaluate('window.__editorSmoke.commits'), before + (cancelled ? 0 : 1));
+      const after = await readGeometry();
+      if (cancelled) assert.deepEqual(after, geometry);
+      else {
+        assert(after.x > geometry.x + 40, 'Latest move, not an earlier queued preview, must commit');
+        assert(after.y > geometry.y + 40, 'Latest move must commit on both axes');
+      }
+      await settle();
+      assert.equal(await evaluate('window.__editorSmoke.commits'), before + (cancelled ? 0 : 1));
+    });
+  }
   console.log(JSON.stringify({ passed: results.every((result) => result.passed), tests: results }, null, 2));
   if (results.some((result) => !result.passed)) process.exitCode = 1;
 } finally {

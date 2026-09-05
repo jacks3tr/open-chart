@@ -243,10 +243,10 @@ export class CanvasTextRasterCache {
     const normalizedDpr = normalizeDevicePixelRatio(devicePixelRatio);
     const zoomBucket = nextPowerOfTwo(zoom);
 
-    configureTextContext(context, style);
     const metricsKey = measurementKey(style);
     let metrics = this.measurements.get(metricsKey);
     if (metrics === undefined) {
+      configureTextContext(context, style);
       metrics = resolveMeasurement(context.measureText(style.value), style.fontSize);
       this.measurements.set(metricsKey, metrics);
       if (this.measurements.size > 4096) {

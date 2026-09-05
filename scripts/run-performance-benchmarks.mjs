@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import process from 'node:process';
 import { fileURLToPath, URL } from 'node:url';
@@ -279,6 +279,19 @@ function run(command, arguments_) {
   });
 }
 
+/** Run every independent measurement, retaining failures instead of hiding later diagnostics. */
+export async function runBenchmarkCommands(commands, execute = run) {
+  const failures = [];
+  for (const arguments_ of commands) {
+    try {
+      await execute(process.execPath, arguments_);
+    } catch (error) {
+      failures.push({ command: arguments_, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  return failures;
+}
+
 async function main() {
   if (process.platform !== 'win32') {
     throw new Error('OpenChart performance acceptance requires Windows and Microsoft Edge');
@@ -291,50 +304,58 @@ async function main() {
   await access(tsxCli);
   await access(npmCli);
   await mkdir(REPORT_DIRECTORY, { recursive: true });
+  await Promise.all(['render-10k.json', 'render-shapes-1k.json', 'connectors-1000.json',
+    'conditional-rules-1000.json', 'beauty-corpus-20.json', 'phase8-core.json',
+    'shape-corpus.json', 'performance-budget.json', 'command-failures.json']
+    .map((name) => rm(resolve(REPORT_DIRECTORY, name), { force: true })));
   await run(process.execPath, [npmCli, 'run', 'build']);
-  await run(process.execPath, [
+  const commandFailures = await runBenchmarkCommands([
+    [
     'scripts/run-render-benchmark.mjs',
     '--output',
     '.openchart-benchmarks/render-10k.json',
-  ]);
-  await run(process.execPath, [
+    ],
+    [
     tsxCli,
     'packages/connectors/benchmark/routing-1000.ts',
     '--output',
     '.openchart-benchmarks/connectors-1000.json',
-  ]);
-  await run(process.execPath, [
+    ],
+    [
     tsxCli,
     'packages/derive/benchmark/conditional-rules-1000.ts',
     '--output',
     '.openchart-benchmarks/conditional-rules-1000.json',
-  ]);
-  await run(process.execPath, [
+    ],
+    [
     tsxCli,
     'packages/app/benchmark/beauty-corpus-20.ts',
     '--output',
     '.openchart-benchmarks/beauty-corpus-20.json',
-  ]);
-  await run(process.execPath, [
+    ],
+    [
     tsxCli,
     'packages/derive/benchmark/phase8-core.ts',
     '--output',
     '.openchart-benchmarks/phase8-core.json',
-  ]);
-  await run(process.execPath, [
+    ],
+    [
     tsxCli,
     'packages/scene/benchmark/generate-shape-corpus.ts',
     '--output',
     '.openchart-benchmarks/shape-corpus.json',
-  ]);
-  await run(process.execPath, [
+    ],
+    [
     'scripts/run-render-benchmark.mjs',
     '--benchmark-path',
     '/packages/render/benchmark/render-shapes-1k.html',
     '--output',
     '.openchart-benchmarks/render-shapes-1k.json',
+    ],
   ]);
 
+  await writeFile(resolve(REPORT_DIRECTORY, 'command-failures.json'),
+    `${JSON.stringify({ commandFailures }, null, 2)}\n`, 'utf8');
   const metrics = await collectMetrics();
   const evaluation = evaluatePerformanceMetrics(metrics);
   const report = {
@@ -346,6 +367,8 @@ async function main() {
     coverage: 'docs/OPENCHART_PLAN.md section 17.1',
     metrics,
     ...evaluation,
+    commandFailures,
+    passed: evaluation.passed && commandFailures.length === 0,
   };
   await mkdir(dirname(OUTPUT_PATH), { recursive: true });
   await writeFile(OUTPUT_PATH, `${JSON.stringify(report, null, 2)}\n`, 'utf8');

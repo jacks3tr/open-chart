@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
-import { evaluatePerformanceMetrics } from './run-performance-benchmarks.mjs';
+import { evaluatePerformanceMetrics, runBenchmarkCommands } from './run-performance-benchmarks.mjs';
 
 const passingMetrics = {
   coldInteractiveMs: 1_000,
@@ -29,6 +29,17 @@ const passingMetrics = {
 };
 
 describe('Phase 8 performance budget evaluator', () => {
+  test('continues after a failed measurement and reports the actual failure', async () => {
+    const visited = [];
+    const failures = await runBenchmarkCommands([['render'], ['routing'], ['core']],
+      async (_command, args) => {
+        visited.push(args[0]);
+        if (args[0] === 'render') throw new Error('render exceeded budget');
+      });
+    expect(visited).toEqual(['render', 'routing', 'core']);
+    expect(failures).toEqual([{ command: ['render'], error: 'render exceeded budget' }]);
+  });
+
   test('passes a report with the required headroom and fails a text-repaint regression', () => {
     expect(evaluatePerformanceMetrics(passingMetrics).passed).toBe(true);
 

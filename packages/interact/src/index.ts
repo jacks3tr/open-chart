@@ -770,20 +770,23 @@ function snapAnchors(
       ];
 }
 
+function compareSnap(left: SnapOption, right: SnapOption): number {
+  return Math.abs(left.correction) - Math.abs(right.correction) ||
+    left.priority - right.priority || left.position - right.position ||
+    compareStrings(left.targetIds.join('|'), right.targetIds.join('|'));
+}
+
 function bestSnap(options: readonly SnapOption[]): SnapOption | undefined {
-  return [...options].sort((left, right) => {
-    const distance = Math.abs(left.correction) - Math.abs(right.correction);
-    if (distance !== 0) {
-      return distance;
-    }
-    if (left.priority !== right.priority) {
-      return left.priority - right.priority;
-    }
-    if (left.position !== right.position) {
-      return left.position - right.position;
-    }
-    return compareStrings(left.targetIds.join('|'), right.targetIds.join('|'));
-  })[0];
+  let best: SnapOption | undefined;
+  for (const option of options) {
+    if (best === undefined || compareSnap(option, best) < 0) best = option;
+  }
+  return best;
+}
+
+interface NormalizedSnapCandidate {
+  readonly id: string;
+  readonly bounds: NormalizedRect;
 }
 
 function rangesOverlap(
@@ -797,28 +800,34 @@ function rangesOverlap(
 
 function nearestDistances(
   bounds: NormalizedRect,
-  candidates: readonly SnapCandidate[],
+  candidates: readonly NormalizedSnapCandidate[],
   axis: 'x' | 'y',
 ): AxisDistancePair {
-  const measurements: DistanceMeasurement[] = [];
+  const nearest: { before: DistanceMeasurement | undefined; after: DistanceMeasurement | undefined } = {
+    before: undefined, after: undefined,
+  };
+  const consider = (measurement: DistanceMeasurement): void => {
+    const current = nearest[measurement.side];
+    if (current === undefined || measurement.distance < current.distance ||
+      (measurement.distance === current.distance && compareStrings(measurement.targetId, current.targetId) < 0)) {
+      nearest[measurement.side] = measurement;
+    }
+  };
   for (const candidate of candidates) {
-    const target = normalizeRect(
-      candidate.bounds,
-      `Snap candidate ${JSON.stringify(candidate.id)} bounds`,
-    );
+    const target = candidate.bounds;
     if (axis === 'x') {
       if (!rangesOverlap(bounds.top, bounds.bottom, target.top, target.bottom)) {
         continue;
       }
       if (target.right <= bounds.left) {
-        measurements.push({
+        consider({
           axis,
           targetId: candidate.id,
           distance: bounds.left - target.right,
           side: 'before',
         });
       } else if (target.left >= bounds.right) {
-        measurements.push({
+        consider({
           axis,
           targetId: candidate.id,
           distance: target.left - bounds.right,
@@ -830,14 +839,14 @@ function nearestDistances(
         continue;
       }
       if (target.bottom <= bounds.top) {
-        measurements.push({
+        consider({
           axis,
           targetId: candidate.id,
           distance: bounds.top - target.bottom,
           side: 'before',
         });
       } else if (target.top >= bounds.bottom) {
-        measurements.push({
+        consider({
           axis,
           targetId: candidate.id,
           distance: target.top - bounds.bottom,
@@ -846,16 +855,7 @@ function nearestDistances(
       }
     }
   }
-  const nearest = (side: 'before' | 'after'): DistanceMeasurement | undefined =>
-    measurements
-      .filter((measurement) => measurement.side === side)
-      .sort((left, right) => {
-        const distance = left.distance - right.distance;
-        return distance === 0
-          ? compareStrings(left.targetId, right.targetId)
-          : distance;
-      })[0];
-  return { before: nearest('before'), after: nearest('after') };
+  return nearest;
 }
 
 export function snapBounds(request: SnapRequest): SnapResult {
@@ -867,25 +867,20 @@ export function snapBounds(request: SnapRequest): SnapResult {
   if (!Number.isFinite(threshold) || threshold < 0) {
     throw new Error('Snap threshold must be finite and non-negative');
   }
-  const candidates = request.candidates
-    .filter((candidate) => candidate.onScreen && candidate.id !== request.movingId)
-    .sort((left, right) => compareStrings(left.id, right.id));
-  candidates.forEach((candidate) => {
-    normalizeRect(candidate.bounds, `Snap candidate ${JSON.stringify(candidate.id)} bounds`);
+  const candidates: NormalizedSnapCandidate[] = [];
+  for (const candidate of request.candidates) {
+    if (!candidate.onScreen || candidate.id === request.movingId) continue;
+    const bounds = normalizeRect(candidate.bounds, `Snap candidate ${JSON.stringify(candidate.id)} bounds`);
     if (candidate.bounds.width <= 0 || candidate.bounds.height <= 0) {
-      throw new Error(
-        `Snap candidate ${JSON.stringify(candidate.id)} must have positive dimensions`,
-      );
+      throw new Error(`Snap candidate ${JSON.stringify(candidate.id)} must have positive dimensions`);
     }
-  });
+    candidates.push({ id: candidate.id, bounds });
+  }
 
   const optionsByAxis: Record<'x' | 'y', SnapOption[]> = { x: [], y: [] };
   if (request.settings.snapToObjects) {
     for (const candidate of candidates) {
-      const target = normalizeRect(
-        candidate.bounds,
-        `Snap candidate ${JSON.stringify(candidate.id)} bounds`,
-      );
+      const target = candidate.bounds;
       for (const axis of ['x', 'y'] as const) {
         for (const movingAnchor of snapAnchors(source, axis)) {
           for (const targetAnchor of snapAnchors(target, axis)) {

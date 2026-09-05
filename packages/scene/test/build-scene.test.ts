@@ -29,6 +29,29 @@ function collectItems(items: readonly SceneItem[]): readonly SceneItem[] {
 }
 
 describe('buildSceneDescription', () => {
+  it('does not assemble or normalize every obstacle for each fast preview edge', () => {
+    const parsed = validateDocument(JSON.parse(readFileSync(fixturePath, 'utf8')));
+    if (!parsed.ok) throw new Error('Invalid fixture');
+    let reads = 0;
+    const document = structuredClone(parsed.document);
+    for (const node of Object.values(document.nodes)) {
+      const container = node.container;
+      Object.defineProperty(node, 'container', { get() { reads += 1; return container; } });
+    }
+    const edge = Object.values(document.edges)[0]!;
+    document.edges = { [edge.id]: edge };
+    buildSceneDescription(document, { routingStrategy: 'fast' });
+    const baselineReads = reads;
+    for (let index = 0; index < 80; index += 1) {
+      const id = `edge.copy-${index}`;
+      document.edges[id] = { ...edge, id, uid: String(index + 2000).padStart(26, '0') };
+    }
+    reads = 0;
+    const scene = buildSceneDescription(document, { routingStrategy: 'fast' });
+    expect(scene.connectors).toHaveLength(81);
+    expect(reads).toBe(baselineReads);
+  });
+
   it('resolves canonical IR into one deterministic, markup-free display list', () => {
     const input: unknown = JSON.parse(readFileSync(fixturePath, 'utf8'));
     const validation = validateDocument(input);

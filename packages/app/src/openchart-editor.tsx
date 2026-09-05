@@ -954,14 +954,17 @@ function resolveFrames(document: OpenChartDocument): Readonly<Record<string, Tra
   );
 }
 
-function previewDocument(
+export function previewDocument(
   document: OpenChartDocument,
   preview: TransformPreview | null,
 ): OpenChartDocument {
   if (preview === null) {
     return document;
   }
-  const next = structuredClone(document);
+  // Scene derivation is read-only: preserve canonical entities and copy only layout paths.
+  const next = { ...document, layout: {
+    ...document.layout, overrides: { ...document.layout.overrides },
+  } };
   for (const [id, frame] of Object.entries(preview.updates)) {
     next.layout.overrides[id] = {
       ...next.layout.overrides[id],
@@ -2456,6 +2459,9 @@ function CanvasStage({
   const gestureRef = useRef<Gesture | null>(null);
   const latestPreviewRef = useRef<TransformPreview | null>(null);
   const fittedRef = useRef(false);
+  const sceneRef = useRef(scene);
+  sceneRef.current = scene;
+  const pendingPreviewFrameRef = useRef<number | undefined>(undefined);
   const [viewport, setViewport] = useState<ViewportSize>({ width: 1, height: 1 });
   const [marquee, setMarquee] = useState<InteractionRect | null>(null);
   const [lasso, setLasso] = useState<readonly InteractionPoint[]>([]);
@@ -2487,16 +2493,12 @@ function CanvasStage({
   }, [caches]);
   const moveSnapCandidates = useMemo(() => {
     const selected = new Set(selection.selectedIds);
-    return items.filter((item) => !selected.has(item.id) && !item.hidden && !item.locked)
-      .map((item) => ({
-        id: item.id,
-        bounds: item.bounds,
-        onScreen:
-          item.bounds.x + item.bounds.width >= camera.x &&
-          item.bounds.x <= camera.x + viewport.width / camera.zoom &&
-          item.bounds.y + item.bounds.height >= camera.y &&
-          item.bounds.y <= camera.y + viewport.height / camera.zoom,
-      }));
+    const right = camera.x + viewport.width / camera.zoom;
+    const bottom = camera.y + viewport.height / camera.zoom;
+    return items.filter((item) => !selected.has(item.id) && !item.hidden && !item.locked &&
+      item.bounds.x + item.bounds.width >= camera.x && item.bounds.x <= right &&
+      item.bounds.y + item.bounds.height >= camera.y && item.bounds.y <= bottom)
+      .map((item) => ({ id: item.id, bounds: item.bounds, onScreen: true }));
   }, [camera, items, selection.selectedIds, viewport]);
   const connectors = scene.connectors ?? [];
   const selectedBounds = useMemo(
@@ -2510,11 +2512,30 @@ function CanvasStage({
 
   const updatePreview = useCallback(
     (nextPreview: TransformPreview | null) => {
+      // Pointer-up commits this synchronous value even before the queued paint.
       latestPreviewRef.current = nextPreview;
-      onPreviewChange(nextPreview);
+      if (nextPreview === null) {
+        if (pendingPreviewFrameRef.current !== undefined) {
+          cancelAnimationFrame(pendingPreviewFrameRef.current);
+          pendingPreviewFrameRef.current = undefined;
+        }
+        onPreviewChange(null);
+      } else if (pendingPreviewFrameRef.current === undefined) {
+        pendingPreviewFrameRef.current = requestAnimationFrame(() => {
+          pendingPreviewFrameRef.current = undefined;
+          onPreviewChange(latestPreviewRef.current);
+        });
+      }
     },
     [onPreviewChange],
   );
+
+  useEffect(() => () => {
+    if (pendingPreviewFrameRef.current !== undefined) {
+      cancelAnimationFrame(pendingPreviewFrameRef.current);
+      pendingPreviewFrameRef.current = undefined;
+    }
+  }, []);
 
   useEffect(() => {
     if (tool !== 'connector') {
@@ -2536,16 +2557,17 @@ function CanvasStage({
         width: Math.max(1, Math.floor(entry.contentRect.width)),
         height: Math.max(1, Math.floor(entry.contentRect.height)),
       };
-      setViewport(nextViewport);
+      setViewport((current) => current.width === nextViewport.width &&
+        current.height === nextViewport.height ? current : nextViewport);
       onViewportChange(nextViewport);
       if (!fittedRef.current && nextViewport.width > 100 && nextViewport.height > 100) {
         fittedRef.current = true;
-        onCameraChange(fitCamera(scene, nextViewport));
+        onCameraChange(fitCamera(sceneRef.current, nextViewport));
       }
     });
     observer.observe(stage);
     return () => observer.disconnect();
-  }, [onCameraChange, onViewportChange, scene]);
+  }, [onCameraChange, onViewportChange]);
 
   useEffect(() => {
     paintCanvasLayer(backgroundRef.current, renderer, viewportCamera(camera, viewport), 'background');
