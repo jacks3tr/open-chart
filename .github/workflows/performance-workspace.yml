@@ -1,0 +1,23 @@
+name: Performance workspace
+on:
+  push:
+    branches: [fix/editor-reliability-performance]
+    paths: [.github/workflows/performance-workspace.yml]
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Package tracked source and history for isolated verification
+        run: git bundle create openchart.bundle --all
+      - uses: actions/upload-artifact@v4
+        with:
+          name: openchart-performance-source
+          path: openchart.bundle
+          retention-days: 1
