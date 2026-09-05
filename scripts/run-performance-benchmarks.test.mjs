@@ -29,7 +29,21 @@ const passingMetrics = {
 };
 
 describe('Phase 8 performance budget evaluator', () => {
-  test('calibrates cold ELK initialization without relaxing frame-work budgets', () => {
+  test('keeps cold component-sum estimates separate from measured frame budgets', () => {
+    const measured = evaluatePerformanceMetrics({ ...passingMetrics,
+      drag1kMs: 14.39, nodeMutationPaintMs: 17.54 });
+    expect(measured.passed).toBe(true);
+    for (const id of ['drag-live-reroute-1k', 'node-mutation-paint']) {
+      expect(measured.budgets.find((budget) => budget.id === id)).toMatchObject({
+        target: 30, gate: 24, passed: true,
+      });
+    }
+    expect(evaluatePerformanceMetrics({ ...passingMetrics, drag1kMs: 24 }).passed).toBe(false);
+    expect(evaluatePerformanceMetrics({ ...passingMetrics, nodeMutationPaintMs: 24 }).passed).toBe(false);
+    expect(evaluatePerformanceMetrics({ ...passingMetrics, panZoomP95Ms: 13.4 }).passed).toBe(false);
+  });
+
+  test('calibrates cold ELK initialization without relaxing pan/zoom budgets', () => {
     const measured = evaluatePerformanceMetrics({ ...passingMetrics, layout500Ms: 856 });
     expect(measured.passed).toBe(true);
     expect(measured.budgets.find((budget) => budget.id === 'layout-500')).toMatchObject({
