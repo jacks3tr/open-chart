@@ -90,6 +90,22 @@ function textScene(): SceneDescription {
 }
 
 describe('CanvasTextRasterCache', () => {
+  it('bounds measured text entries as labels change during a long editing session', () => {
+    const target = recordingContext({ width: 40 });
+    const cache = new CanvasTextRasterCache((width, height) => ({
+      width, height, context: target.context, blit: () => undefined,
+    }), 1024);
+    const label = { type: 'text' as const, id: 'label', value: 'label-0',
+      at: { x: 0, y: 0 }, fill: '#000000', fontSize: 10, fontFamily: 'sans-serif', fontWeight: 400 };
+    cache.paintText(target.context, label, 1);
+    for (let index = 1; index <= 4096; index += 1) {
+      cache.paintText(target.context, { ...label, value: `label-${index}` }, 1);
+    }
+    const before = target.measurementCount();
+    cache.paintText(target.context, label, 1);
+    expect(target.measurementCount()).toBe(before + 1);
+  });
+
   it('reuses measured metrics and text pixels across full and dirty paints', () => {
     const measurement: CanvasTextMeasurement = {
       width: 40,

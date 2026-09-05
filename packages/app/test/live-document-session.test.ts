@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import northstarInput from '../../../examples/northstar-integration.openchart.json';
 import { validateDocument, type OpenChartDocument } from '@openchart/ir';
 import { OperationEngine } from '@openchart/ops';
@@ -85,5 +85,52 @@ describe('live document session', () => {
     expect(result).toMatchObject({ ok: false, code: 'PERSISTENCE_FAILED' });
     expect(engine.document).toEqual(before);
     expect(session.history.undoStack).toHaveLength(0);
+  });
+});
+
+
+describe('live session mutation isolation', () => {
+  it('blocks a document switch as soon as an agent mutation is queued', async () => {
+    let engine = new OperationEngine(fixture());
+    let release!: () => void;
+    const save = new Promise<void>((resolve) => { release = resolve; });
+    const session = new LiveDocumentSession({
+      getEngine: () => engine,
+      replaceEngine: (next) => { engine = next; },
+      publish: () => undefined,
+      persist: () => save,
+      setStatus: () => undefined,
+    });
+    const id = Object.keys(engine.document.nodes)[0];
+    if (id === undefined) throw new Error('Fixture has no nodes');
+    const pending = session.apply({ txId: 'pending', actor: 'agent', origin: 'mcp', baseRev: session.document.rev,
+      ops: [{ op: 'set_node_label', id, label: 'Saved' }] });
+    expect(() => session.reset(new OperationEngine(fixture()))).toThrow('saving');
+    expect(session.undoLocal().ok).toBe(false);
+    await Promise.resolve();
+    expect(() => session.reset(new OperationEngine(fixture()))).toThrow('saving');
+    release();
+    expect((await pending).ok).toBe(true);
+    expect(() => session.reset(new OperationEngine(fixture()))).not.toThrow();
+  });
+
+  it('does not clone full history before an agent mutation or rollback', async () => {
+    const engine = new OperationEngine(fixture());
+    const historyRead = vi.spyOn(engine, 'history', 'get');
+    const before = engine.document;
+    const session = new LiveDocumentSession({
+      getEngine: () => engine,
+      replaceEngine: () => { throw new Error('Rollback must keep the engine'); },
+      publish: () => undefined,
+      persist: () => Promise.reject(new Error('disk full')),
+      setStatus: () => undefined,
+    });
+    const id = Object.keys(engine.document.nodes)[0];
+    if (id === undefined) throw new Error('Fixture has no nodes');
+    const result = await session.apply({ txId: 'failed', actor: 'agent', origin: 'mcp', baseRev: session.document.rev,
+      ops: [{ op: 'set_node_label', id, label: 'Not saved' }] });
+    expect(result).toMatchObject({ ok: false, code: 'PERSISTENCE_FAILED' });
+    expect(engine.document).toBe(before);
+    expect(historyRead).not.toHaveBeenCalled();
   });
 });

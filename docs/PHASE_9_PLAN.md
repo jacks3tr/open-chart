@@ -65,7 +65,10 @@ and visual styling rather than reimplementing these capabilities.
 
 ---
 
-## 1. Verified state of the repository
+## 1. Historical repository baseline — 2 September 2026
+
+These counts and test results describe the pre-checkpoint baseline, not current
+HEAD. Use the implementation checkpoint above and current CI when assigning work.
 
 Reproduce with: `npm run typecheck && npm run lint && npm run build`.
 
@@ -185,7 +188,11 @@ across all libraries, but do not plan against this number.
 
 ---
 
-## 3. Gap analysis
+## 3. Historical gap analysis — superseded by section 0.1
+
+This table records the original motivation; it is not an active defect list.
+Whole-label formatting, expanded diagram libraries, and connector markers have
+already shipped. Per-range rich text remains a separate feature.
 
 Severity is against the user's stated priorities, not against Lucid.
 

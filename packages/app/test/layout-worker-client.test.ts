@@ -54,6 +54,7 @@ beforeEach(() => {
 
 afterEach(() => {
   for (const worker of TestWorker.instances) worker.terminate();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
 });
 
@@ -77,6 +78,64 @@ describe('layout worker lifecycle', () => {
     TestWorker.failPost = true;
     await expect(requestLayout(fixture(), {} as LayoutDocumentOptions))
       .rejects.toThrow('Could not clone document');
+    expect(latestWorker().terminated).toBe(true);
+  });
+});
+
+
+describe('bounded layout requests', () => {
+  it('rejects a timed out request and recovers with a new worker', async () => {
+    vi.useFakeTimers();
+    const { requestLayout } = await import('../src/layout-worker-client.js');
+    const pending = requestLayout(fixture(), {} as LayoutDocumentOptions, { timeoutMs: 50 });
+    const rejected = expect(pending).rejects.toThrow('timed out');
+    await vi.advanceTimersByTimeAsync(50);
+    await rejected;
+    expect(latestWorker().terminated).toBe(true);
+    const next = requestLayout(fixture(), {} as LayoutDocumentOptions);
+    latestWorker().complete({ marker: 'recovered' });
+    await expect(next).resolves.toEqual({ marker: 'recovered' });
+    expect(TestWorker.instances).toHaveLength(2);
+  });
+
+  it('cancels the last pending request and releases its worker', async () => {
+    const { requestLayout } = await import('../src/layout-worker-client.js');
+    const controller = new AbortController();
+    const pending = requestLayout(fixture(), {} as LayoutDocumentOptions, { signal: controller.signal });
+    const rejected = expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    controller.abort();
+    await rejected;
+    expect(latestWorker().terminated).toBe(true);
+  });
+
+  it('does not start a worker for an already cancelled request', async () => {
+    const { requestLayout } = await import('../src/layout-worker-client.js');
+    await expect(requestLayout(fixture(), {} as LayoutDocumentOptions, { signal: AbortSignal.abort() }))
+      .rejects.toMatchObject({ name: 'AbortError' });
+    expect(TestWorker.instances).toHaveLength(0);
+  });
+
+  it('correlates concurrent responses and ignores unrelated messages', async () => {
+    const { requestLayout } = await import('../src/layout-worker-client.js');
+    const first = requestLayout(fixture(), {} as LayoutDocumentOptions);
+    const second = requestLayout(fixture(), {} as LayoutDocumentOptions);
+    expect(TestWorker.instances).toHaveLength(1);
+    const worker = latestWorker();
+    worker.dispatchEvent(new MessageEvent('message', { data: { requestId: 'unknown', ok: true } }));
+    worker.complete({ marker: 'second' });
+    await expect(second).resolves.toEqual({ marker: 'second' });
+    worker.dispatchEvent(new MessageEvent('message', {
+      data: { requestId: worker.requests[0]?.requestId, kind: 'layout', ok: true, result: { marker: 'first' } },
+    }));
+    await expect(first).resolves.toEqual({ marker: 'first' });
+  });
+
+  it('rejects pending requests when a worker response cannot be decoded', async () => {
+    const { requestLayout } = await import('../src/layout-worker-client.js');
+    const pending = requestLayout(fixture(), {} as LayoutDocumentOptions);
+    const rejected = expect(pending).rejects.toThrow('decoded');
+    latestWorker().dispatchEvent(new Event('messageerror'));
+    await rejected;
     expect(latestWorker().terminated).toBe(true);
   });
 });

@@ -1049,6 +1049,27 @@ export class OperationEngine {
     };
   }
 
+  /**
+   * Capture a rollback point for a serialized mutation. Document and transaction
+   * payloads are owned by the engine; only their collection membership is copied.
+   * The returned closure is bound to this engine and must not span unrelated edits.
+   */
+  public checkpoint(): () => void {
+    const document = this.#document;
+    const undo = this.#undoStack.slice();
+    const redo = this.#redoStack.slice();
+    const idempotency = new Map(this.#idempotency);
+    return () => {
+      this.#document = document;
+      this.#undoStack.length = 0;
+      this.#redoStack.length = 0;
+      for (const transaction of undo) this.#undoStack.push(transaction);
+      for (const transaction of redo) this.#redoStack.push(transaction);
+      this.#idempotency.clear();
+      for (const [key, record] of idempotency) this.#idempotency.set(key, record);
+    };
+  }
+
   public apply(envelope: OperationEnvelope): ApplyResult {
     const operations = (envelope as { readonly ops?: unknown }).ops;
     if (Array.isArray(operations) && operations.length === 0) {

@@ -1,18 +1,27 @@
-# Editor reliability and performance implementation plan
+# Editor reliability and performance
 
-Goal: repair verified correctness, lifecycle, and avoidable hot-path costs without changing the canonical document/operation architecture.
+## Implemented scope
 
-Scope: regression tests first; lazy editor engine initialization; cancelled gesture rollback; layer-specific painting; worker reuse, deadlines, cancellation and document-switch protection; bounded live-session events and cheaper safe persistence rollback; independent CI gates and Windows native verification.
+- Initialize the shared operation engine once per mounted editor.
+- Cancel pointer transforms and selection gestures without committing; clear previews on canonical document changes and lost pointer capture.
+- Paint background, diagram content, and interaction overlay independently. Reuse byte-bounded raster caches and bound the text-measurement cache.
+- Memoize snapping candidates rather than rebuilding their bounds on every pointer event.
+- Reuse the layout worker; correlate concurrent replies, cancel requests, reject deadlines/worker failures, and discard stale results after edits or document replacement.
+- Bound the live operation journal (default 1,000 events) with monotonic sequence numbers and an explicit truncation signal. Undo/replay history is intentionally separate and unchanged.
+- Restore failed persisted mutations using shallow engine checkpoints instead of cloning all transaction payloads. Block document replacement/local history edits while agent mutations are queued or saving.
+- Run quality, integration, fuzzing, performance, real-browser editor checks, and Windows native tests/builds as independent CI gates. The aggregate `check` requires every gate.
+- Retain the historical roadmap as history rather than presenting superseded gaps as current defects.
 
-The wider product roadmap (new importers, editable PowerPoint, rich-text authoring, SDK publication and installers) is not represented as completed by this maintenance PR.
+## Verification
 
-## Execution and acceptance
+Behavioral tests reproduced worker lifecycle, journal retention, repeated engine construction, hover repainting, and cancelled-transform failures before production changes. Added checkpoint, cancellation, deadline, failed-save, and bounded-cache coverage.
 
-- [ ] Reproduce worker lifecycle and journal-retention failures using new behavioral tests on Windows CI.
-- [ ] Inspect actual editor and operation-engine paths before applying targeted changes.
-- [ ] Add cancellation, failure-recovery and stale-document regression cases alongside their fixes.
-- [ ] Preserve revision checks, transaction replay, undo/redo and rollback after failed persistence.
-- [ ] Separate fast checks, integration tests, fuzzing, benchmarks and Windows native validation; retain failures as failures.
-- [ ] Review the final diff and run all checks on the exact PR head before merging.
+Run `npm run check`, `npm run test:editor`, `npm run fuzz:smoke`, and `npm run benchmark` on Windows. CI also tests Rust persistence and builds the actual Tauri executable. Browser tests run against the real React editor, not mocked DOM behavior.
 
-Temporary branch-only verification/patch machinery must be removed before the PR is ready. No changes to main or branch protection are permitted during verification.
+Two multi-operation MCP scenarios have explicit 30-second deadlines and connection/rasterization stage diagnostics; ordinary unit-test timeouts remain unchanged.
+
+Merge requires inspection of the final diff and passing gates on the exact PR head. Temporary branch-only bootstrap/verification workflows must not remain in the merged tree.
+
+## Explicit follow-ups, not completion claims
+
+Incremental scene/index updates, spatial-neighborhood snapping, pointer-frame coalescing, full editor decomposition, additional importers, per-range rich text, editable PowerPoint, SDK publication, and signed installers are not implemented by this maintenance change. No measured editor speedup is claimed without a reference-machine comparison.
