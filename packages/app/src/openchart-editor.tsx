@@ -103,7 +103,6 @@ import { OperationEngine, type Operation, type OperationEnvelope } from '@opench
 import {
   SceneViewportRenderer,
   type CameraState,
-  type CanvasPaintContext,
 } from '@openchart/render';
 import {
   buildSceneDescription,
@@ -140,7 +139,8 @@ import {
   writeDesktopDocument,
 } from './desktop-file.js';
 import { createOpenChartPageImportTransaction } from './document-import.js';
-import { requestBeautyPass, requestLayout } from './layout-worker-client.js';
+import { disposeLayoutWorker, requestBeautyPass, requestLayout } from './layout-worker-client.js';
+import { createEditorRasterCaches, paintCanvasLayer } from './canvas-layer.js';
 import {
   loadBrowserTextExport,
   loadFullShapeCatalog,
@@ -954,14 +954,17 @@ function resolveFrames(document: OpenChartDocument): Readonly<Record<string, Tra
   );
 }
 
-function previewDocument(
+export function previewDocument(
   document: OpenChartDocument,
   preview: TransformPreview | null,
 ): OpenChartDocument {
   if (preview === null) {
     return document;
   }
-  const next = structuredClone(document);
+  // Scene derivation is read-only: preserve canonical entities and copy only layout paths.
+  const next = { ...document, layout: {
+    ...document.layout, overrides: { ...document.layout.overrides },
+  } };
   for (const [id, frame] of Object.entries(preview.updates)) {
     next.layout.overrides[id] = {
       ...next.layout.overrides[id],
@@ -2456,6 +2459,9 @@ function CanvasStage({
   const gestureRef = useRef<Gesture | null>(null);
   const latestPreviewRef = useRef<TransformPreview | null>(null);
   const fittedRef = useRef(false);
+  const sceneRef = useRef(scene);
+  sceneRef.current = scene;
+  const pendingPreviewFrameRef = useRef<number | undefined>(undefined);
   const [viewport, setViewport] = useState<ViewportSize>({ width: 1, height: 1 });
   const [marquee, setMarquee] = useState<InteractionRect | null>(null);
   const [lasso, setLasso] = useState<readonly InteractionPoint[]>([]);
@@ -2480,6 +2486,20 @@ function CanvasStage({
     readonly to: InteractionPoint;
   } | null>(null);
   const renderer = useMemo(() => new SceneViewportRenderer(scene), [scene]);
+  const caches = useMemo(createEditorRasterCaches, []);
+  useEffect(() => () => {
+    caches.chromeCache.clear();
+    caches.textCache.clear();
+  }, [caches]);
+  const moveSnapCandidates = useMemo(() => {
+    const selected = new Set(selection.selectedIds);
+    const right = camera.x + viewport.width / camera.zoom;
+    const bottom = camera.y + viewport.height / camera.zoom;
+    return items.filter((item) => !selected.has(item.id) && !item.hidden && !item.locked &&
+      item.bounds.x + item.bounds.width >= camera.x && item.bounds.x <= right &&
+      item.bounds.y + item.bounds.height >= camera.y && item.bounds.y <= bottom)
+      .map((item) => ({ id: item.id, bounds: item.bounds, onScreen: true }));
+  }, [camera, items, selection.selectedIds, viewport]);
   const connectors = scene.connectors ?? [];
   const selectedBounds = useMemo(
     () => selectionBounds(selection.selectedIds, displayFrames),
@@ -2492,11 +2512,30 @@ function CanvasStage({
 
   const updatePreview = useCallback(
     (nextPreview: TransformPreview | null) => {
+      // Pointer-up commits this synchronous value even before the queued paint.
       latestPreviewRef.current = nextPreview;
-      onPreviewChange(nextPreview);
+      if (nextPreview === null) {
+        if (pendingPreviewFrameRef.current !== undefined) {
+          cancelAnimationFrame(pendingPreviewFrameRef.current);
+          pendingPreviewFrameRef.current = undefined;
+        }
+        onPreviewChange(null);
+      } else if (pendingPreviewFrameRef.current === undefined) {
+        pendingPreviewFrameRef.current = requestAnimationFrame(() => {
+          pendingPreviewFrameRef.current = undefined;
+          onPreviewChange(latestPreviewRef.current);
+        });
+      }
     },
     [onPreviewChange],
   );
+
+  useEffect(() => () => {
+    if (pendingPreviewFrameRef.current !== undefined) {
+      cancelAnimationFrame(pendingPreviewFrameRef.current);
+      pendingPreviewFrameRef.current = undefined;
+    }
+  }, []);
 
   useEffect(() => {
     if (tool !== 'connector') {
@@ -2518,51 +2557,29 @@ function CanvasStage({
         width: Math.max(1, Math.floor(entry.contentRect.width)),
         height: Math.max(1, Math.floor(entry.contentRect.height)),
       };
-      setViewport(nextViewport);
+      setViewport((current) => current.width === nextViewport.width &&
+        current.height === nextViewport.height ? current : nextViewport);
       onViewportChange(nextViewport);
       if (!fittedRef.current && nextViewport.width > 100 && nextViewport.height > 100) {
         fittedRef.current = true;
-        onCameraChange(fitCamera(scene, nextViewport));
+        onCameraChange(fitCamera(sceneRef.current, nextViewport));
       }
     });
     observer.observe(stage);
     return () => observer.disconnect();
-  }, [onCameraChange, onViewportChange, scene]);
+  }, [onCameraChange, onViewportChange]);
+
+  useEffect(() => {
+    paintCanvasLayer(backgroundRef.current, renderer, viewportCamera(camera, viewport), 'background');
+  }, [camera, renderer, viewport]);
+
+  useEffect(() => {
+    paintCanvasLayer(mainRef.current, renderer, viewportCamera(camera, viewport), 'main', caches);
+  }, [caches, camera, renderer, viewport]);
 
   useEffect(() => {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    for (const canvas of [backgroundRef.current, mainRef.current, overlayRef.current]) {
-      if (canvas === null) {
-        continue;
-      }
-      const width = Math.max(1, Math.round(viewport.width * dpr));
-      const height = Math.max(1, Math.round(viewport.height * dpr));
-      if (canvas.width !== width || canvas.height !== height) {
-        canvas.width = width;
-        canvas.height = height;
-      }
-      canvas.style.width = `${viewport.width}px`;
-      canvas.style.height = `${viewport.height}px`;
-    }
-    const paintLayer = (
-      canvas: HTMLCanvasElement | null,
-      layer: 'background' | 'main' | 'overlay',
-    ): CanvasRenderingContext2D | undefined => {
-      const context = canvas?.getContext('2d');
-      if (context === null || context === undefined) {
-        return undefined;
-      }
-      context.setTransform(dpr, 0, 0, dpr, 0, 0);
-      renderer.paint(
-        context as unknown as CanvasPaintContext,
-        viewportCamera(camera, viewport),
-        { layer, devicePixelRatio: dpr },
-      );
-      return context;
-    };
-    paintLayer(backgroundRef.current, 'background');
-    paintLayer(mainRef.current, 'main');
-    const overlay = paintLayer(overlayRef.current, 'overlay');
+    const overlay = paintCanvasLayer(overlayRef.current, renderer, viewportCamera(camera, viewport), 'overlay');
     if (overlay === undefined) {
       return;
     }
@@ -2814,17 +2831,31 @@ function CanvasStage({
     waypointPreview,
   ]);
 
+  useEffect(() => {
+    if (gestureRef.current === null && latestPreviewRef.current === null) return;
+    gestureRef.current = null;
+    setMarquee(null);
+    setLasso([]);
+    setWaypointPreview(null);
+    setLabelPreview(null);
+    setSegmentPreview(null);
+    setConnectorDragPreview(null);
+    setSnapVisuals({ guides: [] });
+    updatePreview(null);
+  }, [document, updatePreview]);
+
   const releaseGesture = useCallback(
     (canvas: HTMLCanvasElement, pointerId: number, cancelled = false) => {
       if (canvas.hasPointerCapture(pointerId)) {
         canvas.releasePointerCapture(pointerId);
       }
       const gesture = gestureRef.current;
-      if (gesture?.mode === 'marquee' && marquee !== null) {
+      if (!cancelled && gesture?.mode === 'marquee' && marquee !== null) {
         onSelectionChange(selectMarquee(selection, items, marquee));
-      } else if (gesture?.mode === 'lasso' && lasso.length >= 3) {
+      } else if (!cancelled && gesture?.mode === 'lasso' && lasso.length >= 3) {
         onSelectionChange(selectLasso(selection, items, lasso));
       } else if (
+        !cancelled &&
         (gesture?.mode === 'move' || gesture?.mode === 'resize' || gesture?.mode === 'rotate') &&
         latestPreviewRef.current !== null
       ) {
@@ -3226,21 +3257,10 @@ function CanvasStage({
           y: point.y - gesture.startWorld.y,
         };
         let nextPreview = translateSelection(document, frames, gesture.selectedIds, rawDelta);
-        const selected = new Set(gesture.selectedIds);
         const snap = snapBounds({
           movingId: gesture.selectedIds.join('|'),
           bounds: nextPreview.selectionBounds,
-          candidates: items
-            .filter((item) => !selected.has(item.id))
-            .map((item) => ({
-              id: item.id,
-              bounds: item.bounds,
-              onScreen:
-                item.bounds.x + item.bounds.width >= camera.x &&
-                item.bounds.x <= camera.x + viewport.width / camera.zoom &&
-                item.bounds.y + item.bounds.height >= camera.y &&
-                item.bounds.y <= camera.y + viewport.height / camera.zoom,
-            })),
+          candidates: moveSnapCandidates,
           settings: {
             snapToGrid: true,
             snapToObjects: true,
@@ -3435,6 +3455,7 @@ function CanvasStage({
         onPointerMove={handlePointerMove}
         onPointerUp={(event) => releaseGesture(event.currentTarget, event.pointerId)}
         onPointerCancel={(event) => releaseGesture(event.currentTarget, event.pointerId, true)}
+        onLostPointerCapture={(event) => releaseGesture(event.currentTarget, event.pointerId, true)}
         onPointerLeave={() => {
           if (gestureRef.current === null) {
             setHoveredNodeId(null);
@@ -3467,7 +3488,6 @@ function CanvasStage({
       ) : null}
       <div className="oc-canvas-readout" aria-hidden="true">
         <span>{Math.round(camera.zoom * 100)}%</span>
-        <span>{renderer.totalIndexedGroups} indexed</span>
       </div>
     </div>
   );
@@ -3532,7 +3552,7 @@ function ToolIcon({ kind }: { readonly kind: EditorTool }) {
 }
 
 export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
-  const engineRef = useRef(new OperationEngine(initialDocument));
+  const [engineRef] = useState(() => ({ current: new OperationEngine(initialDocument) }));
   const [document, setDocument] = useState(engineRef.current.document);
   const [documentPath, setDocumentPath] = useState<string>();
   const [savedRevision, setSavedRevision] = useState(initialDocument.rev);
@@ -3571,6 +3591,12 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
   const [status, setStatus] = useState('Ready');
   const [layoutMode, setLayoutMode] = useState<LayoutMode>('layered');
   const [derivationBusy, setDerivationBusy] = useState(false);
+  const derivationRef = useRef<AbortController | null>(null);
+  useEffect(() => () => {
+    derivationRef.current?.abort();
+    derivationRef.current = null;
+    disposeLayoutWorker();
+  }, []);
   const [clipboard, setClipboard] = useState<ClipboardPayload | null>(null);
   const [styleSourceId, setStyleSourceId] = useState<string | null>(null);
   const [fullShapeCatalog, setFullShapeCatalog] = useState<FullShapeCatalogModule>();
@@ -3833,9 +3859,12 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
   );
 
   const runAutoLayout = useCallback(async (): Promise<void> => {
-    if (activePageId.length === 0 || derivationBusy) {
+    if (activePageId.length === 0 || derivationRef.current !== null) {
       return;
     }
+    const controller = new AbortController();
+    const sourceEngine = engineRef.current;
+    derivationRef.current = controller;
     setDerivationBusy(true);
     setStatus(`Arranging ${layoutMode} layout…`);
     try {
@@ -3843,13 +3872,18 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
         pageId: activePageId,
         mode: layoutMode,
         direction: 'RIGHT',
-      });
+      }, { signal: controller.signal });
+      if (derivationRef.current !== controller) return;
+      if (engineRef.current !== sourceEngine || sourceEngine.document !== document) {
+        setStatus('Layout discarded because the document changed');
+        return;
+      }
       const changed =
         document.layout.engine !== result.engine ||
         document.layout.derivedVersion !== result.derivedVersion ||
         JSON.stringify(document.layout.derived) !== JSON.stringify(result.frames);
       if (changed) {
-        commit(
+        const applied = commit(
           {
             txId: nextTransactionId('layout'),
             actor: 'user',
@@ -3864,21 +3898,30 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
           },
           `${layoutMode[0]?.toUpperCase() ?? ''}${layoutMode.slice(1)} layout applied`,
         );
+        if (!applied) return;
       } else {
         setStatus('Layout is already current');
       }
       setCamera(fitCameraBounds(framesBounds(result.frames), viewport));
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'Automatic layout failed');
+      if (derivationRef.current === controller) {
+        setStatus(error instanceof Error ? error.message : 'Automatic layout failed');
+      }
     } finally {
-      setDerivationBusy(false);
+      if (derivationRef.current === controller) {
+        derivationRef.current = null;
+        setDerivationBusy(false);
+      }
     }
   }, [activePageId, commit, derivationBusy, document, layoutMode, nextTransactionId, viewport]);
 
   const runBeautyPass = useCallback(async (): Promise<void> => {
-    if (activePageId.length === 0 || derivationBusy) {
+    if (activePageId.length === 0 || derivationRef.current !== null) {
       return;
     }
+    const controller = new AbortController();
+    const sourceEngine = engineRef.current;
+    derivationRef.current = controller;
     setDerivationBusy(true);
     setStatus('Running the eleven-step Beauty Pass…');
     try {
@@ -3887,7 +3930,12 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
         layoutMode,
         direction: 'RIGHT',
         presetId: activePresetId,
-      });
+      }, { signal: controller.signal });
+      if (derivationRef.current !== controller) return;
+      if (engineRef.current !== sourceEngine || sourceEngine.document !== document) {
+        setStatus('Beauty Pass discarded because the document changed');
+        return;
+      }
       if (plan.operations.length > 0) {
         const applied = commit(
           {
@@ -3907,9 +3955,14 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
       }
       setCamera(fitCameraBounds(plan.fitBounds, viewport));
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'Beauty Pass failed');
+      if (derivationRef.current === controller) {
+        setStatus(error instanceof Error ? error.message : 'Beauty Pass failed');
+      }
     } finally {
-      setDerivationBusy(false);
+      if (derivationRef.current === controller) {
+        derivationRef.current = null;
+        setDerivationBusy(false);
+      }
     }
   }, [
     activePageId,
@@ -4919,6 +4972,9 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
           : { shapeResolver: fullShapeCatalog.resolveLibraryShape }),
       });
       liveSession.reset(nextEngine);
+      derivationRef.current?.abort();
+      derivationRef.current = null;
+      setDerivationBusy(false);
       documentPathRef.current = opened.path;
       setDocumentPath(opened.path);
       setSavedRevision(nextEngine.document.rev);

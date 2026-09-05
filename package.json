@@ -31,7 +31,10 @@
     "prepare": "npm run generate:icons",
     "test": "vitest run --exclude \"**/dist/**\" --exclude \"**/dist-types/**\"",
     "test:watch": "vitest --exclude \"**/dist/**\" --exclude \"**/dist-types/**\"",
-    "typecheck": "tsc -b --pretty false"
+    "typecheck": "tsc -b --pretty false",
+    "test:unit": "vitest run --exclude \"**/dist/**\" --exclude \"**/dist-types/**\" --exclude \"packages/agent/test/**\" --maxWorkers=2",
+    "test:integration": "vitest run packages/agent/test --maxWorkers=2",
+    "test:editor": "node scripts/run-editor-smoke.mjs"
   },
   "dependencies": {
     "immer": "11.1.18",

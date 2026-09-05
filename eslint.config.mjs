@@ -46,7 +46,7 @@ export default tseslint.config(
   },
   {
     ...tseslint.configs.disableTypeChecked,
-    files: ['scripts/**/*.mjs'],
+    files: ['scripts/**/*.mjs', 'vitest.config.mjs'],
   },
   {
     files: coreFiles,

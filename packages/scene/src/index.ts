@@ -2403,6 +2403,10 @@ export function buildSceneDescription(
   const routedEdges: RoutedEdge[] = [];
   const routesByEdgeId = new Map<string, RoutedEdge>();
   const connectorGeometries: SceneConnectorGeometry[] = [];
+  const edgePaintOrder = new Map(edges.map((edge, index) => [edge.id, index]));
+  // Most previews use fast routing, which neither uses nor needs obstacle validation.
+  // For obstacle routing, resolve immutable bounds once and only exclude endpoints per edge.
+  let obstaclePopulation: readonly (Bounds & { readonly id: string })[] | undefined;
   for (const edge of edges) {
     const fromPort = portsById.get(edge.fromPortId);
     const toPort = portsById.get(edge.toPortId);
@@ -2422,19 +2426,18 @@ export function buildSceneDescription(
     ) {
       continue;
     }
-    const obstacles = nodes
-      .filter(
-        (node) =>
-          node.id !== fromPort.nodeId &&
-          node.id !== toPort.nodeId &&
-          node.container === undefined &&
-          node.group === undefined,
-      )
-      .map((node) => {
-        const bounds = boundsByNode.get(node.id);
-        return bounds === undefined ? undefined : { ...bounds, id: node.id };
-      })
-      .filter((bounds): bounds is Bounds & { readonly id: string } => bounds !== undefined);
+    let obstacles: readonly Bounds[] = [];
+    if (resolveRoutingStrategy(edge, options.routingStrategy) === 'obstacle' &&
+      edge.routing?.mode !== 'straight') {
+      obstaclePopulation ??= nodes
+        .filter((node) => node.container === undefined && node.group === undefined)
+        .flatMap((node) => {
+          const bounds = boundsByNode.get(node.id);
+          return bounds === undefined ? [] : [{ ...bounds, id: node.id }];
+        });
+      obstacles = obstaclePopulation.filter((bounds) =>
+        bounds.id !== fromPort.nodeId && bounds.id !== toPort.nodeId);
+    }
     const layout = document.layout.edgeOverrides?.[edge.id];
     const route = routeEdge(
       edge,
@@ -2476,7 +2479,7 @@ export function buildSceneDescription(
       .map((routed) => ({
         id: routed.edge.id,
         uid: routed.edge.uid,
-        zIndex: edges.findIndex((edge) => edge.id === routed.edge.id),
+        zIndex: edgePaintOrder.get(routed.edge.id) ?? 0,
         points: routed.points,
       })),
   );

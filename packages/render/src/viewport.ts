@@ -57,6 +57,8 @@ function canvasPaintOptions(
 ): CanvasPaintOptions {
   return {
     zoom: camera.zoom,
+    worldViewport: { x: camera.x, y: camera.y,
+      width: camera.viewportWidth / camera.zoom, height: camera.viewportHeight / camera.zoom },
     ...(options.layer === undefined ? {} : { layer: options.layer }),
     ...(options.chromeCache === undefined ? {} : { chromeCache: options.chromeCache }),
     ...(options.textCache === undefined ? {} : { textCache: options.textCache }),
@@ -428,6 +430,8 @@ export class SceneViewportRenderer {
   private readonly artboard: SceneGroup;
   private readonly indexedItems: readonly IndexedGroup[];
   private readonly index: RBush<IndexedGroup>;
+  private readonly uncullable: readonly { readonly item: SceneItem; readonly paintIndex: number }[];
+  private readonly chromePopulation: readonly SceneItem[];
 
   public constructor(scene: SceneDescription) {
     const artboard = scene.items.find(isArtboard);
@@ -435,10 +439,13 @@ export class SceneViewportRenderer {
       throw new Error('Scene description must contain an artboard group');
     }
     this.artboard = artboard;
+    this.chromePopulation = [artboard];
+    const uncullable: { item: SceneItem; paintIndex: number }[] = [];
 
     const indexed: IndexedGroup[] = [];
     artboard.children.forEach((item, paintIndex) => {
       if (!isCullingGroup(item)) {
+        uncullable.push({ item, paintIndex });
         return;
       }
       const derived = boundsForItem(item) ?? boundsForRect(scene.bounds, 0);
@@ -448,6 +455,7 @@ export class SceneViewportRenderer {
       indexed.push({ ...derived, group: item, paintIndex });
     });
 
+    this.uncullable = uncullable;
     this.indexedItems = Object.freeze(indexed);
     this.index = new RBush<IndexedGroup>();
     this.index.load(this.indexedItems);
@@ -458,9 +466,31 @@ export class SceneViewportRenderer {
   }
 
   public query(worldRect: SceneRect): readonly SceneGroup[] {
-    const matches = this.index.search(worldRectToBBox(worldRect));
-    matches.sort(comparePaintOrder);
-    return matches.map((entry) => entry.group);
+    return this.queryEntries(worldRect).map((entry) => entry.group);
+  }
+
+  private queryEntries(worldRect: SceneRect): IndexedGroup[] {
+    return this.index.search(worldRectToBBox(worldRect)).sort(comparePaintOrder);
+  }
+
+  /** Merge only visible entries with fixed backgrounds/overlays; never rescan the scene. */
+  private paintItems(visible: readonly IndexedGroup[]): SceneItem[] {
+    const items: SceneItem[] = [];
+    let fixedIndex = 0;
+    for (const entry of visible) {
+      while (fixedIndex < this.uncullable.length) {
+        const fixed = this.uncullable[fixedIndex];
+        if (fixed === undefined || fixed.paintIndex > entry.paintIndex) break;
+        items.push(fixed.item);
+        fixedIndex += 1;
+      }
+      items.push(entry.group);
+    }
+    for (; fixedIndex < this.uncullable.length; fixedIndex += 1) {
+      const fixed = this.uncullable[fixedIndex];
+      if (fixed !== undefined) items.push(fixed.item);
+    }
+    return items;
   }
 
   public paint(
@@ -469,7 +499,7 @@ export class SceneViewportRenderer {
     options: ViewportPaintOptions = {},
   ): ViewportPaintStats {
     validateCamera(camera);
-    const visible = this.query(
+    const visible = this.queryEntries(
       expandQueryForScreenBleed(
         {
           x: camera.x,
@@ -480,19 +510,9 @@ export class SceneViewportRenderer {
         camera.zoom,
       ),
     );
-    const visibleSet = new Set(visible);
-    const paintItems: SceneItem[] = [];
-    const visibleEntityIds: string[] = [];
-    for (const item of this.artboard.children) {
-      if (!isCullingGroup(item) || visibleSet.has(item)) {
-        paintItems.push(item);
-      }
-    }
-    for (const group of visible) {
-      if (group.entityId !== undefined) {
-        visibleEntityIds.push(group.entityId);
-      }
-    }
+    const paintItems = this.paintItems(visible);
+    const visibleEntityIds = visible.flatMap(({ group }) =>
+      group.entityId === undefined ? [] : [group.entityId]);
 
     // Clear in screen coordinates before changing the transform.
     context.clearRect(0, 0, camera.viewportWidth, camera.viewportHeight);
@@ -504,7 +524,7 @@ export class SceneViewportRenderer {
       drawCallCount = paintSceneItemsToCanvas(
         [{ ...this.artboard, children: paintItems }],
         context,
-        canvasPaintOptions(camera, options, [this.artboard]),
+        canvasPaintOptions(camera, options, this.chromePopulation),
       ).drawCallCount;
     } finally {
       context.restore();
@@ -547,25 +567,16 @@ export class SceneViewportRenderer {
       };
     }
 
-    const visibleSet = new Set<SceneGroup>();
+    const visibleSet = new Set<IndexedGroup>();
     for (const rect of remainingRects) {
-      for (const group of this.query(expandQueryForScreenBleed(rect, camera.zoom))) {
-        visibleSet.add(group);
+      for (const entry of this.queryEntries(expandQueryForScreenBleed(rect, camera.zoom))) {
+        visibleSet.add(entry);
       }
     }
-
-    const paintItems: SceneItem[] = [];
-    const visibleEntityIds: string[] = [];
-    for (const item of this.artboard.children) {
-      if (!isCullingGroup(item)) {
-        paintItems.push(item);
-      } else if (visibleSet.has(item)) {
-        paintItems.push(item);
-        if (item.entityId !== undefined) {
-          visibleEntityIds.push(item.entityId);
-        }
-      }
-    }
+    const visible = [...visibleSet].sort(comparePaintOrder);
+    const paintItems = this.paintItems(visible);
+    const visibleEntityIds = visible.flatMap(({ group }) =>
+      group.entityId === undefined ? [] : [group.entityId]);
 
     const screenRects = remainingRects.map((rect) =>
       alignToDevicePixels(worldToScreenRect(rect, camera), options.devicePixelRatio),
@@ -586,7 +597,7 @@ export class SceneViewportRenderer {
       drawCallCount = paintSceneItemsToCanvas(
         [{ ...this.artboard, children: paintItems }],
         context,
-        canvasPaintOptions(camera, options, [this.artboard]),
+        canvasPaintOptions(camera, options, this.chromePopulation),
       ).drawCallCount;
     } finally {
       context.restore();

@@ -132,6 +132,37 @@ function createServiceEnvelope(): OperationEnvelope {
 }
 
 describe('OperationEngine', () => {
+  it('deletion sees nodes, parents, ports and edges created earlier in the same batch', () => {
+    const engine = new OperationEngine(baseDocument());
+    const envelope = createServiceEnvelope();
+    expect(engine.apply({ ...envelope, ops: [...envelope.ops,
+      { op: 'set_node_parent', id: 'database.orders', parentId: 'service.api' },
+      { op: 'delete_node', id: 'service.api' },
+    ] })).toMatchObject({ ok: true });
+    expect(Object.keys(engine.document.nodes)).toEqual(['database.orders']);
+    expect(engine.document.nodes['database.orders']?.parentId).toBeUndefined();
+    expect(Object.keys(engine.document.ports)).toEqual(['database.orders.in']);
+    expect(engine.document.edges).toEqual({});
+    expect(validateDocument(engine.document).ok).toBe(true);
+    expect(engine.undo()).toMatchObject({ ok: true });
+    expect(engine.document.nodes).toEqual({});
+    expect(engine.redo()).toMatchObject({ ok: true });
+    expect(Object.keys(engine.document.nodes)).toEqual(['database.orders']);
+    expect(validateDocument(engine.document).ok).toBe(true);
+  });
+
+  it('port deletion removes edges introduced earlier in its transaction', () => {
+    const engine = new OperationEngine(baseDocument());
+    const envelope = createServiceEnvelope();
+    expect(engine.apply({ ...envelope, ops: [...envelope.ops,
+      { op: 'delete_port', id: 'service.api.out' },
+    ] })).toMatchObject({ ok: true });
+    expect(Object.keys(engine.document.nodes)).toHaveLength(2);
+    expect(Object.keys(engine.document.ports)).toEqual(['database.orders.in']);
+    expect(engine.document.edges).toEqual({});
+    expect(validateDocument(engine.document).ok).toBe(true);
+  });
+
   it('renames the document as an undoable operation', () => {
     const engine = new OperationEngine(baseDocument());
 

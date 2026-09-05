@@ -18,6 +18,7 @@ import { createOpenChartMcpServer } from '../src/mcp.js';
 import { renderDocumentScreenshot } from '../src/screenshot.js';
 import { OpenChartDocumentSession } from '../src/session.js';
 import { OpenChartToolKernel } from '../src/tools.js';
+import { timedStage } from './timing.js';
 
 const repositoryRoot = dirname(
   dirname(dirname(fileURLToPath(new URL('.', import.meta.url)))),
@@ -303,6 +304,7 @@ async function screenshot(
 }
 
 describe('Arcline agent-authored acceptance', () => {
+  // Real MCP plus repeated native rasterization; stage timings remain visible on failure.
   it('authors, renders, and visually corrects a 30-node diagram over real MCP', async () => {
     const artifactDirectory = await makeArtifactDirectory();
     const documentPath = join(
@@ -313,7 +315,8 @@ describe('Arcline agent-authored acceptance', () => {
 
     const session = await OpenChartDocumentSession.open(documentPath);
     const server = createOpenChartMcpServer(
-      new OpenChartToolKernel(session, renderDocumentScreenshot),
+      new OpenChartToolKernel(session, (document, input) =>
+      timedStage('screenshot rasterization', () => renderDocumentScreenshot(document, input))),
     );
     const client = new Client({
       name: 'arcline-acceptance-agent',
@@ -321,7 +324,7 @@ describe('Arcline agent-authored acceptance', () => {
     });
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     await server.connect(serverTransport);
-    await client.connect(clientTransport);
+    await timedStage('MCP connection', () => client.connect(clientTransport));
     closeCallbacks.push(async () => client.close(), async () => server.close());
 
     const operations = authoringOperations();
@@ -473,5 +476,5 @@ describe('Arcline agent-authored acceptance', () => {
       'utf8',
     );
     process.stdout.write(`Arcline acceptance artifacts: ${artifactDirectory}\n`);
-  });
+  }, 30_000);
 });

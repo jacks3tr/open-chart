@@ -243,12 +243,16 @@ export class CanvasTextRasterCache {
     const normalizedDpr = normalizeDevicePixelRatio(devicePixelRatio);
     const zoomBucket = nextPowerOfTwo(zoom);
 
-    configureTextContext(context, style);
     const metricsKey = measurementKey(style);
     let metrics = this.measurements.get(metricsKey);
     if (metrics === undefined) {
+      configureTextContext(context, style);
       metrics = resolveMeasurement(context.measureText(style.value), style.fontSize);
       this.measurements.set(metricsKey, metrics);
+      if (this.measurements.size > 4096) {
+        const oldest = this.measurements.keys().next().value;
+        if (oldest !== undefined) this.measurements.delete(oldest);
+      }
     }
 
     const adjustedAdvance = metrics.width + style.letterSpacing * Math.max(0, style.value.length - 1);
