@@ -1,3 +1,5 @@
+import { sceneItemsBounds } from './bounds.js';
+export { boundsForItem, boundsForRect, sceneItemsBounds } from './bounds.js';
 import {
   catmullRomToCubicSegments,
   findOrthogonalCrossings,
@@ -34,6 +36,14 @@ export {
   type ShapeSceneBuildOptions,
   type ShapeSceneInstance,
 } from './shapes.js';
+
+export function safeHttpUrl(value: unknown): string | undefined {
+  if (typeof value !== 'string' || value.trim() === '') return undefined;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' || url.protocol === 'http:' ? url.href : undefined;
+  } catch { return undefined; }
+}
 
 export const SCENE_VERSION = 1 as const;
 
@@ -82,6 +92,7 @@ export interface SceneGroup extends SceneItemBase {
   readonly role: SceneGroupRole;
   readonly entityId?: string;
   readonly ariaLabel?: string;
+  readonly href?: string;
   readonly composition?: 'above' | 'left' | 'circle';
   readonly transform?: SceneTransform;
   readonly clip?: SceneClip;
@@ -220,6 +231,7 @@ export interface SceneClip {
 export interface SceneDescription {
   readonly version: typeof SCENE_VERSION;
   readonly bounds: SceneRect;
+  readonly contentBounds?: SceneRect;
   readonly title: string;
   readonly description: string;
   /** Fully resolved, deterministic display list in paint order. */
@@ -717,7 +729,7 @@ function restyleLibraryItem(item: SceneItem, node: Node, bounds: Bounds, style: 
   if (item.type === 'group') {
     return { ...item, children: item.children.map((child) => restyleLibraryItem(child, node, bounds, style)) };
   }
-  if (item.type === 'text' && item.value === node.label) {
+  if (item.type === 'text' && item.value === node.label.split('\n')[0]) {
     const fontFamily = readString(node.data, 'fontFamily');
     const fontSize = readNumber(node.data, 'fontSize');
     const fontWeight = readNumber(node.data, 'fontWeight');
@@ -725,8 +737,13 @@ function restyleLibraryItem(item: SceneItem, node: Node, bounds: Bounds, style: 
     const alignment = readString(node.data, 'textAlign');
     return {
       ...item,
+      minZoom: 0.25,
       ...(fontFamily === undefined ? {} : { fontFamily }),
       ...(fontSize === undefined ? {} : { fontSize: clamp(fontSize, 8, 96) }),
+      at: {
+        x: alignment === 'left' ? bounds.x + 8 : alignment === 'right' ? bounds.x + bounds.width - 8 : item.at.x,
+        y: item.at.y + ((fontSize === undefined ? item.fontSize : clamp(fontSize, 8, 96)) - item.fontSize) * 0.35,
+      },
       ...(fontWeight === undefined ? {} : { fontWeight: clamp(fontWeight, 100, 900) }),
       ...(readString(node.data, 'fontStyle') === 'italic' ? { fontStyle: 'italic' as const } : {}),
       ...(node.data.underline === true ? { underline: true } : {}),
@@ -801,9 +818,12 @@ function renderLibraryNode(
     );
   }
   const propertyNames = new Set(resolved.definition.properties?.map(({ name }) => name));
+  // Entity labels use the first line as the name; subsequent lines are editable fields.
+  const entityLines = /^erd\.(entity|weak-entity|associative-entity)$/.test(entryId)
+    ? node.label.split('\n') : [node.label];
   const data: Record<string, string> = {};
   if (propertyNames.has('Label')) {
-    data.Label = node.label;
+    data.Label = entityLines[0] ?? node.label;
   }
   if (propertyNames.has('Accent')) {
     data.Accent = style.accent;
@@ -831,6 +851,12 @@ function renderLibraryNode(
     children: [
       ...(shadow === undefined ? [] : [shadow]),
       ...group.children.map((item) => restyleLibraryItem(item, node, bounds, style)),
+      ...entityLines.slice(1).map((value, index): SceneTextItem => ({
+        type: 'text', id: `node-${sanitizeId(node.id)}-field-${index}`, value,
+        at: { x: bounds.x + 16, y: bounds.y + bounds.height * 0.28 + 28 + index * 28 },
+        fill: safeColor(node.data.textColor) ?? PALETTE.ink,
+        fontFamily: 'Segoe UI, Arial, sans-serif', fontSize: 14, minZoom: 0.25,
+      })),
     ],
   };
 }
@@ -1480,7 +1506,7 @@ function renderNode(node: Node, bounds: Bounds, style: NodeStyle): SceneGroup {
       fontStyle: titleStyle,
       ...(titleUnderline ? { underline: true } : {}),
       anchor: titleAnchor,
-      minZoom: 0.4,
+      minZoom: 0.25,
     });
   }
   if (subtitle !== undefined) {
@@ -1556,7 +1582,7 @@ function renderNode(node: Node, bounds: Bounds, style: NodeStyle): SceneGroup {
     id: `${nodeId}-labels`,
     role: 'label',
     entityId: node.id,
-    minZoom: 0.4,
+    minZoom: 0.25,
     children: labels,
   });
   return {
@@ -1720,8 +1746,8 @@ function renderEdge(
   const label = textValue(edge.label);
   const semantic = textValue(edge.semantic);
   const point = edgeLabelPoint(points, layout);
-  const lineLabel = label || semantic || style.label;
-  const caption = label && semantic ? semantic : label ? semantic : style.label;
+  const lineLabel = edge.data.showSemanticLabel === false ? label : label || semantic || style.label;
+  const caption = edge.data.showSemanticLabel === false ? '' : label && semantic ? semantic : label ? semantic : style.label;
   const labelFontFamily = readString(edge.data, 'fontFamily') ?? 'Segoe UI, Arial, sans-serif';
   const labelFontSize = clamp(readNumber(edge.data, 'fontSize') ?? 10, 8, 96);
   const labelFontWeight = clamp(readNumber(edge.data, 'fontWeight') ?? 700, 100, 900);
@@ -1800,7 +1826,7 @@ function renderEdge(
         fillOpacity: 0.95,
         stroke: style.stroke,
         strokeOpacity: 0.2,
-        minZoom: 0.4,
+        minZoom: 0.25,
       },
       {
         type: 'text',
@@ -1814,7 +1840,7 @@ function renderEdge(
         fontStyle: labelFontStyle,
         ...(labelUnderline ? { underline: true } : {}),
         anchor: labelAnchor,
-        minZoom: 0.4,
+        minZoom: 0.25,
       },
     ];
     if (visualCaption) {
@@ -1835,7 +1861,7 @@ function renderEdge(
       id: `${edgeId}-label`,
       role: 'label',
       entityId: edge.id,
-      minZoom: 0.4,
+      minZoom: 0.25,
       children: labelItems,
     });
   }
@@ -2145,7 +2171,19 @@ function renderLegend(
   canvasWidth: number,
   canvasHeight: number,
 ): SceneGroup {
-  const entries = [...styles.entries()].sort(([left], [right]) => compareIds(left, right));
+  const entries = new Map<string, { style: EdgeStyle; flows: Edge[] }>();
+  for (const edge of edges) {
+    const base = styles.get(edge.id);
+    if (base === undefined) continue;
+    const dash = edge.routing?.lineStyle === 'solid' ? undefined
+      : edge.routing?.lineStyle === 'dashed' ? [8, 6]
+      : edge.routing?.lineStyle === 'dotted' ? [2, 5] : base.dash;
+    const style: EdgeStyle = { stroke: base.stroke, label: base.label, ...(dash === undefined ? {} : { dash }) };
+    const key = `${edge.styleId}-${style.stroke}-${dash?.join('-') ?? 'solid'}`;
+    const entry = entries.get(key);
+    if (entry === undefined) entries.set(key, { style, flows: [edge] });
+    else entry.flows.push(edge);
+  }
   const y = Math.max(0, canvasHeight - 39);
   const children: SceneItem[] = [
     {
@@ -2171,7 +2209,7 @@ function renderLegend(
       letterSpacing: 1.3,
     },
   ];
-  if (entries.length === 0 || edges.length === 0) {
+  if (entries.size === 0 || edges.length === 0) {
     children.push({
       type: 'text',
       id: 'legend-empty',
@@ -2183,8 +2221,11 @@ function renderLegend(
     });
   } else {
     let x = 164;
-    for (const [styleId, style] of entries) {
-      const width = Math.min(270, Math.max(100, estimateTextWidth(style.label, 5.6) + 48));
+    for (const [styleId, { style, flows }] of entries) {
+      const label = flows.every((edge) => typeof edge.data.starterTemplate === 'string')
+        ? [...new Set(flows.map((edge) => edge.semantic))].join(' / ')
+        : style.label;
+      const width = Math.min(270, Math.max(100, estimateTextWidth(label, 5.6) + 48));
       const legendLine = style.dash === undefined
         ? {
             type: 'path' as const,
@@ -2216,7 +2257,7 @@ function renderLegend(
         {
           type: 'text',
           id: `legend-${sanitizeId(styleId)}-label`,
-          value: style.label,
+          value: label,
           at: { x: x + 38, y },
           fill: PALETTE.ink,
           fontFamily: 'Segoe UI, Arial, sans-serif',
@@ -2293,6 +2334,51 @@ function renderZonePanels(
   return panels;
 }
 
+export function resolveDocumentLayout(document: OpenChartDocument, options: SceneBuildOptions = {}) {
+  const page = selectPage(document, options.pageId);
+  const baseCanvasWidth = chooseDimension(options.width, document.layout.options?.canvasWidth, 1440, 'width');
+  const baseCanvasHeight = chooseDimension(options.height, document.layout.options?.canvasHeight, 920, 'height');
+  const nodes = Object.values(document.nodes)
+    .filter((node) => node.pageId === page.id && document.layers[node.layerId]?.visible === true)
+    .sort((left, right) => compareNodePaintOrder(document, left, right));
+  const visibleNodeIds = new Set(nodes.map((node) => node.id));
+  const baseFrames: Record<string, Bounds> = {};
+  for (let index = 0; index < nodes.length; index += 1) {
+    const node = nodes[index];
+    if (node !== undefined) {
+      baseFrames[node.id] = resolveBounds(
+        node,
+        index,
+        nodes.length,
+        baseCanvasWidth,
+        baseCanvasHeight,
+        document.layout.overrides,
+        document.layout.derived ?? {},
+      );
+    }
+  }
+  const remainingLayoutNodes = Object.values(document.nodes)
+    .filter((node) => !visibleNodeIds.has(node.id))
+    .sort((left, right) => compareIds(left.id, right.id));
+  for (let index = 0; index < remainingLayoutNodes.length; index += 1) {
+    const node = remainingLayoutNodes[index];
+    if (node !== undefined) {
+      baseFrames[node.id] = resolveBounds(
+        node,
+        index,
+        remainingLayoutNodes.length,
+        baseCanvasWidth,
+        baseCanvasHeight,
+        document.layout.overrides,
+        document.layout.derived ?? {},
+      );
+    }
+  }
+  return reconcileContainers(document, baseFrames, {
+    firstOpen: options.firstOpen ?? false,
+  });
+}
+
 export function buildSceneDescription(
   document: OpenChartDocument,
   options: SceneBuildOptions = {},
@@ -2333,41 +2419,7 @@ export function buildSceneDescription(
     })
     .sort((left, right) => compareIds(left.id, right.id));
 
-  const baseFrames: Record<string, Bounds> = {};
-  for (let index = 0; index < nodes.length; index += 1) {
-    const node = nodes[index];
-    if (node !== undefined) {
-      baseFrames[node.id] = resolveBounds(
-        node,
-        index,
-        nodes.length,
-        baseCanvasWidth,
-        baseCanvasHeight,
-        document.layout.overrides,
-        document.layout.derived ?? {},
-      );
-    }
-  }
-  const remainingLayoutNodes = Object.values(document.nodes)
-    .filter((node) => !visibleNodeIds.has(node.id))
-    .sort((left, right) => compareIds(left.id, right.id));
-  for (let index = 0; index < remainingLayoutNodes.length; index += 1) {
-    const node = remainingLayoutNodes[index];
-    if (node !== undefined) {
-      baseFrames[node.id] = resolveBounds(
-        node,
-        index,
-        remainingLayoutNodes.length,
-        baseCanvasWidth,
-        baseCanvasHeight,
-        document.layout.overrides,
-        document.layout.derived ?? {},
-      );
-    }
-  }
-  const containerLayout = reconcileContainers(document, baseFrames, {
-    firstOpen: options.firstOpen ?? false,
-  });
+  const containerLayout = resolveDocumentLayout(document, options);
   const boundsByNode = new Map<string, Bounds>();
   const stylesByNode = new Map<string, NodeStyle>();
   for (const node of nodes) {
@@ -2388,7 +2440,7 @@ export function buildSceneDescription(
   const anchors = buildPortAnchors(visiblePorts, boundsByNode);
   const edgeStyles = new Map<string, EdgeStyle>();
   for (const edge of edges) {
-    edgeStyles.set(edge.styleId, edgeStyle(edge, document.styles[edge.styleId]));
+    edgeStyles.set(edge.id, edgeStyle(edge, document.styles[edge.styleId]));
   }
   const zones = renderZonePanels(
     nodes.filter(
@@ -2412,7 +2464,7 @@ export function buildSceneDescription(
     const to = fromPort === undefined || toPort === undefined
       ? undefined
       : resolvePortAnchor(toPort, fromPort, anchors, boundsByNode);
-    const style = edgeStyles.get(edge.styleId);
+    const style = edgeStyle(edge, document.styles[edge.styleId]);
     if (
       from === undefined ||
       to === undefined ||
@@ -2500,6 +2552,7 @@ export function buildSceneDescription(
     if (bounds === undefined || style === undefined) {
       return undefined;
     }
+    const href = safeHttpUrl(node.data.link);
     const rotation =
       finiteOrUndefined(document.layout.overrides[node.id]?.rotation) ?? 0;
     if (
@@ -2521,17 +2574,19 @@ export function buildSceneDescription(
         id: `group-${sanitizeId(node.id)}`,
         role: 'group',
         entityId: node.id,
+        ...(href === undefined ? {} : { href }),
         ariaLabel: nodeAriaLabel(node, textValue(node.label, node.id)),
         children,
       };
     }
     if (node.container === undefined) {
-      const group = renderLibraryNode(
+      const rendered = renderLibraryNode(
         node,
         bounds,
         style,
         options.shapeResolver ?? resolveBuiltinLibraryShape,
       ) ?? renderNode(node, bounds, style);
+      const group = href === undefined ? rendered : { ...rendered, href };
       return rotation % 360 === 0
         ? group
         : {
@@ -2554,7 +2609,7 @@ export function buildSceneDescription(
       .filter((child): child is Node => child !== undefined)
       .map(renderHierarchyNode)
       .filter((group): group is SceneGroup => group !== undefined);
-    return renderContainer(node, container, style, children);
+    return { ...renderContainer(node, container, style, children), ...(href === undefined ? {} : { href }) };
   };
   const nodeGroups = nodes
     .filter(
@@ -2571,15 +2626,19 @@ export function buildSceneDescription(
     || document.theme?.presetId === 'high-contrast';
   const hasDiagramContent = nodes.length > 0 || edges.length > 0;
   const artboardChildren: SceneItem[] = [
-    ...(needsArtboardSurface
+    ...(needsArtboardSurface || page.color !== undefined
       ? [
           {
             type: 'rect' as const,
             id: 'artboard-background',
             layer: 'background' as const,
             frame: { x: 0, y: 0, width: canvasWidth, height: canvasHeight },
-            fill: PALETTE.paper,
+            fill: safeColor(page.color) ?? PALETTE.paper,
           },
+        ]
+      : []),
+    ...(needsArtboardSurface
+      ? [
           {
             type: 'dot-grid' as const,
             id: 'artboard-dot-grid',
@@ -2600,7 +2659,7 @@ export function buildSceneDescription(
           },
         ]
       : []),
-    ...(hasDiagramContent
+    ...(hasDiagramContent && !nodes.some((node) => node.data.role === 'page-title')
       ? [renderHeader(document, page, layoutOptions, nodes.length, edges.length, canvasWidth)]
       : []),
     ...zones.map(renderZone),
@@ -2620,9 +2679,17 @@ export function buildSceneDescription(
   const themedArtboard = themeColors.size === 0
     ? artboard
     : themeSceneItem(artboard, themeColors, documentThemeTypeFloor(document)) as SceneGroup;
+  const contentBounds = sceneItemsBounds([...nodeGroups, ...edgeGroups, ...jumpGroups]);
+  const exportX = options.width === undefined && contentBounds !== undefined && contentBounds.x < 0 ? contentBounds.x - 24 : 0;
+  const exportY = options.height === undefined && contentBounds !== undefined && contentBounds.y < 0 ? contentBounds.y - 24 : 0;
+  const contentRight = (contentBounds?.x ?? 0) + (contentBounds?.width ?? 0);
+  const contentBottom = (contentBounds?.y ?? 0) + (contentBounds?.height ?? 0);
+  const exportRight = options.width === undefined && contentRight > canvasWidth ? contentRight + 24 : canvasWidth;
+  const exportBottom = options.height === undefined && contentBottom > canvasHeight ? contentBottom + 24 : canvasHeight;
   return {
     version: SCENE_VERSION,
-    bounds: { x: 0, y: 0, width: canvasWidth, height: canvasHeight },
+    bounds: { x: exportX, y: exportY, width: exportRight - exportX, height: exportBottom - exportY },
+    ...(contentBounds === undefined ? {} : { contentBounds }),
     title,
     description,
     items: [themedArtboard],

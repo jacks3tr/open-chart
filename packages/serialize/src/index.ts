@@ -1,6 +1,7 @@
 import type { OpenChartDocument } from '@openchart/ir';
 import {
   buildSceneDescription,
+  safeHttpUrl,
   type SceneBuildOptions,
   type SceneDescription,
   type SceneDotGridItem,
@@ -190,7 +191,9 @@ function renderItem(item: SceneItem): string {
           : ` transform="rotate(${formatNumber(item.transform.rotation)} ${formatNumber(item.transform.origin.x)} ${formatNumber(item.transform.origin.y)})"`;
       const clipAttribute =
         item.clip === undefined ? '' : ` clip-path="url(#${clipId(item)})"`;
-      return `<g id="${sanitizeId(item.id)}" class="scene-group scene-${item.role}"${entityAttribute}${ariaAttribute}${compositionAttribute}${transformAttribute}${clipAttribute}${opacityAttribute(item.opacity)}>${item.children.map(renderItem).join('')}</g>`;
+      const group = `<g id="${sanitizeId(item.id)}" class="scene-group scene-${item.role}"${entityAttribute}${ariaAttribute}${compositionAttribute}${transformAttribute}${clipAttribute}${opacityAttribute(item.opacity)}>${item.children.map(renderItem).join('')}</g>`;
+      const href = safeHttpUrl(item.href);
+      return href === undefined ? group : `<a href="${escapeXml(href)}" target="_blank" rel="noopener noreferrer">${group}</a>`;
     }
     case 'rect':
       return `<rect id="${sanitizeId(item.id)}" x="${formatNumber(item.frame.x)}" y="${formatNumber(item.frame.y)}" width="${formatNumber(item.frame.width)}" height="${formatNumber(item.frame.height)}"${item.radius === undefined ? '' : ` rx="${formatNumber(item.radius)}"`}${paintAttributes(item)}${opacityAttribute(item.opacity)}/>`;

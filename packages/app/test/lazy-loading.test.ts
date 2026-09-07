@@ -58,7 +58,7 @@ function insertionNode(document: OpenChartDocument, ref: CatalogShapeRef): Node 
 describe('lazy feature loading', () => {
   it('keeps the startup catalog built-in-only and resolves/inserts decorative shapes after lazy loading', async () => {
     const builtins = listBuiltinShapeLibraries();
-    expect(builtins.reduce((total, library) => total + library.entries.length, 0)).toBe(429);
+    expect(builtins.reduce((total, library) => total + library.entries.length, 0)).toBe(397);
     expect(builtins.some((library) => library.id === 'simple-icons' || library.id === 'phosphor')).toBe(false);
 
     const catalog = await loadFullShapeCatalog();
@@ -115,7 +115,7 @@ describe('lazy feature loading', () => {
 
     const engine = new OperationEngine(source);
     expect(engine.apply(transaction.envelope)).toMatchObject({ ok: true });
-    expect(Object.values(engine.document.nodes).filter((node) => node.pageId === pageId)).toHaveLength(8);
+    expect(Object.values(engine.document.nodes).filter((node) => node.pageId === pageId)).toHaveLength(templates.getStarterTemplate('flowchart').nodes.length);
     expect(engine.undo()).toMatchObject({ ok: true });
     expect(Object.values(engine.document.nodes)
       .filter((node) => node.pageId === pageId)

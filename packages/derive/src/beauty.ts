@@ -21,22 +21,20 @@ import {
 
 export const BEAUTY_PASS_STEP_IDS = [
   'infer-semantics',
-  'infer-hierarchy',
   'assign-ports',
   'auto-layout',
   'route',
   'snap-grid',
   'apply-tokens',
   'semantics-to-style',
-  'generate-legend',
-  'add-title-block',
-  'fit-camera',
 ] as const;
 
 export type BeautyPassStepId = (typeof BEAUTY_PASS_STEP_IDS)[number];
 
 export interface BeautyPassOptions {
   readonly pageId: string;
+  /** Limit edits to these shapes and connectors between them. */
+  readonly nodeIds?: readonly string[];
   readonly layoutMode?: LayoutMode;
   readonly direction?: LayoutDirection;
   readonly presetId?: TokenPresetId;
@@ -71,17 +69,13 @@ type SemanticTier =
   | 'network';
 
 const STEP_LABELS: Readonly<Record<BeautyPassStepId, string>> = {
-  'infer-semantics': 'Infer semantics',
-  'infer-hierarchy': 'Infer hierarchy',
+  'infer-semantics': 'Identify shape roles',
   'assign-ports': 'Assign ports',
-  'auto-layout': 'Auto-layout',
+  'auto-layout': 'Arrange shapes',
   route: 'Route connectors',
-  'snap-grid': 'Snap to grid',
-  'apply-tokens': 'Apply tokens',
-  'semantics-to-style': 'Map semantics to style',
-  'generate-legend': 'Generate legend',
-  'add-title-block': 'Add title block',
-  'fit-camera': 'Fit camera',
+  'snap-grid': 'Normalize shape sizes',
+  'apply-tokens': 'Unify diagram colors',
+  'semantics-to-style': 'Distinguish system roles',
 };
 
 const BEAUTY_ROUTING: EdgeRouting = {
@@ -156,11 +150,13 @@ function styleMatchesTier(role: string, tier: SemanticTier): boolean {
   return needles[tier].some((needle) => normalized.includes(needle));
 }
 
-function compileSemanticOperations(document: OpenChartDocument, pageId: string): readonly Operation[] {
+function compileSemanticOperations(document: OpenChartDocument, nodeIds: ReadonlySet<string>): readonly Operation[] {
   const operations: Operation[] = [];
-  const styles = Object.values(document.styles).sort((left, right) => left.id.localeCompare(right.id));
+  const styles = Object.values(document.styles)
+    .filter((style) => !style.role.toLowerCase().includes('flow'))
+    .sort((left, right) => left.id.localeCompare(right.id));
   for (const node of Object.values(document.nodes)
-    .filter((candidate) => candidate.pageId === pageId)
+    .filter((candidate) => nodeIds.has(candidate.id))
     .sort((left, right) => left.id.localeCompare(right.id))) {
     const semanticTier = inferSemanticTier(node);
     if (node.data.semanticTier !== semanticTier) {
@@ -190,13 +186,13 @@ function desiredPortSide(port: Port, direction: LayoutDirection): Port['side'] {
 
 function compilePortOperations(
   document: OpenChartDocument,
-  pageId: string,
+  nodeIds: ReadonlySet<string>,
   direction: LayoutDirection,
 ): readonly Operation[] {
   const operations: Operation[] = [];
   for (const port of Object.values(document.ports)
     .filter((candidate) =>
-      document.nodes[candidate.nodeId]?.pageId === pageId &&
+      nodeIds.has(candidate.nodeId) &&
       document.layout.overrides[candidate.nodeId]?.pinned !== true)
     .sort((left, right) => left.id.localeCompare(right.id))) {
     const side = desiredPortSide(port, direction);
@@ -207,10 +203,10 @@ function compilePortOperations(
   return operations;
 }
 
-function compileSizeOperations(document: OpenChartDocument, pageId: string): readonly Operation[] {
+function compileSizeOperations(document: OpenChartDocument, nodeIds: ReadonlySet<string>): readonly Operation[] {
   const operations: Operation[] = [];
   for (const node of Object.values(document.nodes)
-    .filter((candidate) => candidate.pageId === pageId)
+    .filter((candidate) => nodeIds.has(candidate.id))
     .sort((left, right) => left.id.localeCompare(right.id))) {
     const current = document.layout.overrides[node.id];
     if (current?.pinned === true) {
@@ -225,10 +221,14 @@ function compileSizeOperations(document: OpenChartDocument, pageId: string): rea
   return operations;
 }
 
-function compileRoutingOperations(document: OpenChartDocument, pageId: string): readonly Operation[] {
+function compileRoutingOperations(document: OpenChartDocument, nodeIds: ReadonlySet<string>): readonly Operation[] {
   const operations: Operation[] = [];
   for (const edge of Object.values(document.edges)
-    .filter((candidate) => candidate.pageId === pageId)
+    .filter((candidate) =>
+      document.layers[candidate.layerId]?.locked === false &&
+      document.layers[candidate.layerId]?.visible === true &&
+      nodeIds.has(document.ports[candidate.fromPortId]?.nodeId ?? '') &&
+      nodeIds.has(document.ports[candidate.toPortId]?.nodeId ?? ''))
     .sort((left, right) => left.id.localeCompare(right.id))) {
     const routing = { ...edge.routing, ...BEAUTY_ROUTING };
     if (!equalJson(edge.routing, routing)) {
@@ -266,9 +266,28 @@ export async function planBeautyPass(
     throw new Error(`Unknown Beauty Pass token preset ${JSON.stringify(presetId)}`);
   }
   const direction = options.direction ?? 'RIGHT';
-  const portOperations = compilePortOperations(document, options.pageId, direction);
-  const sizeOperations = compileSizeOperations(document, options.pageId);
+  if (options.nodeIds?.some((id) => document.nodes[id]?.pageId !== options.pageId)) {
+    throw new Error('Beauty Pass selection must contain shapes on the current page');
+  }
+  const requestedIds = options.nodeIds === undefined ? undefined : new Set(options.nodeIds);
+  const nodeIds = new Set(Object.values(document.nodes)
+    .filter((node) => node.pageId === options.pageId &&
+      document.layers[node.layerId]?.visible === true &&
+      document.layers[node.layerId]?.locked === false &&
+      (requestedIds === undefined || requestedIds.has(node.id)))
+    .map((node) => node.id));
+  const portOperations = compilePortOperations(document, nodeIds, direction);
+  const sizeOperations = compileSizeOperations(document, nodeIds);
   const layoutInput = structuredClone(document);
+  for (const node of Object.values(document.nodes)) {
+    if (node.pageId === options.pageId && !nodeIds.has(node.id)) {
+      layoutInput.layout.overrides[node.id] = {
+        ...document.layout.derived?.[node.id],
+        ...document.layout.overrides[node.id],
+        pinned: true,
+      };
+    }
+  }
   for (const operation of [...portOperations, ...sizeOperations]) {
     if (operation.op === 'set_port_side') {
       const port = layoutInput.ports[operation.id];
@@ -289,22 +308,49 @@ export async function planBeautyPass(
     direction,
     spacing: 48,
   }, runtime);
-  const semanticOperations = compileSemanticOperations(document, options.pageId);
+  const semanticOperations = compileSemanticOperations(document, nodeIds);
   const layoutOperations: Operation[] = [];
-  if (
+  const mergedFrames = { ...document.layout.derived, ...layout.frames };
+  if (requestedIds !== undefined) {
+    for (const id of nodeIds) {
+      const frame = layout.frames[id];
+      if (frame === undefined || document.layout.overrides[id]?.pinned === true) continue;
+      layoutOperations.push({ op: 'set_node_layout', id,
+        layout: { ...document.layout.overrides[id], ...frame, pinned: true } });
+    }
+  } else if (
     document.layout.engine !== layout.engine ||
     document.layout.derivedVersion !== layout.derivedVersion ||
-    !equalJson(document.layout.derived, layout.frames)
+    !equalJson(document.layout.derived, mergedFrames)
   ) {
     layoutOperations.push({
       op: 'set_derived_layout',
       engine: layout.engine,
       derivedVersion: layout.derivedVersion,
-      frames: layout.frames,
+      frames: mergedFrames,
     });
   }
-  const routingOperations = compileRoutingOperations(document, options.pageId);
-  const tokenOperations = compileTokenOperations(document, presetId);
+  const routingOperations = compileRoutingOperations(document, nodeIds);
+  // Only retheme styles owned by this page's editable objects. Styles used by
+  // another page, hidden/locked objects, or external connectors stay untouched.
+  const usedStyles = new Set<string>();
+  const protectedStyles = new Set<string>();
+  for (const node of Object.values(document.nodes)) {
+    (nodeIds.has(node.id) ? usedStyles : protectedStyles).add(node.styleId);
+  }
+  for (const operation of semanticOperations) {
+    if (operation.op === 'set_node_style') usedStyles.add(operation.styleId);
+  }
+  for (const edge of Object.values(document.edges)) {
+    const eligible = nodeIds.has(document.ports[edge.fromPortId]?.nodeId ?? '') &&
+      nodeIds.has(document.ports[edge.toPortId]?.nodeId ?? '') &&
+      document.layers[edge.layerId]?.locked === false && document.layers[edge.layerId]?.visible === true;
+    (eligible ? usedStyles : protectedStyles).add(edge.styleId);
+  }
+  const tokenOperations = requestedIds === undefined ? compileTokenOperations(document, presetId)
+    .filter((operation) => operation.op === 'set_theme'
+      ? Object.keys(document.pages).length === 1 && protectedStyles.size === 0
+      : operation.op === 'set_style_tokens' && usedStyles.has(operation.id) && !protectedStyles.has(operation.id)) : [];
   const operations = [
     ...semanticOperations,
     ...portOperations,
@@ -338,6 +384,6 @@ export async function planBeautyPass(
   return {
     operations,
     steps,
-    fitBounds: fitBounds(layout.frames),
+    fitBounds: fitBounds(Object.fromEntries(Object.entries(layout.frames).filter(([id]) => nodeIds.has(id)))),
   };
 }

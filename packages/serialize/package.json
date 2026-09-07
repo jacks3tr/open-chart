@@ -5,11 +5,13 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./export": "./src/export-node.ts"
+    "./export": "./src/export-node.ts",
+    "./browser-export": "./src/export-browser.ts"
   },
   "dependencies": {
     "@openchart/ir": "0.0.0",
     "@openchart/scene": "0.0.0",
+    "@openchart/shapes": "0.0.0",
     "@resvg/resvg-js": "2.6.2",
     "jpeg-js": "0.4.4",
     "jszip": "3.10.1",

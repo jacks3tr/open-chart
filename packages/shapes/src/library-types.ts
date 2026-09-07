@@ -48,6 +48,8 @@ export interface ShapeProvenance {
 }
 
 interface ShapeLibraryEntryBase {
+  /** Historical ID retained for document resolution, omitted from discovery. */
+  readonly aliasOf?: string;
   readonly id: string;
   readonly name: string;
   readonly tags: readonly string[];

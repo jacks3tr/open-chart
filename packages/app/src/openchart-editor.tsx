@@ -15,16 +15,8 @@ import arrowClockwiseIcon from '@phosphor-icons/core/regular/arrow-clockwise.svg
 import arrowCounterClockwiseIcon from '@phosphor-icons/core/regular/arrow-counter-clockwise.svg';
 import arrowDownIcon from '@phosphor-icons/core/regular/arrow-down.svg';
 import arrowUpIcon from '@phosphor-icons/core/regular/arrow-up.svg';
-import arrowsSplitIcon from '@phosphor-icons/core/regular/arrows-split.svg';
-import bracketsCurlyIcon from '@phosphor-icons/core/regular/brackets-curly.svg';
-import circleIcon from '@phosphor-icons/core/regular/circle.svg';
 import cloudCheckIcon from '@phosphor-icons/core/regular/cloud-check.svg';
-import cloudIcon from '@phosphor-icons/core/regular/cloud.svg';
-import codeIcon from '@phosphor-icons/core/regular/code.svg';
 import cursorIcon from '@phosphor-icons/core/regular/cursor.svg';
-import cylinderIcon from '@phosphor-icons/core/regular/cylinder.svg';
-import databaseIcon from '@phosphor-icons/core/regular/database.svg';
-import diamondIcon from '@phosphor-icons/core/regular/diamond.svg';
 import dotsThreeIcon from '@phosphor-icons/core/regular/dots-three.svg';
 import downloadIcon from '@phosphor-icons/core/regular/download-simple.svg';
 import eyeIcon from '@phosphor-icons/core/regular/eye.svg';
@@ -32,40 +24,29 @@ import eyeSlashIcon from '@phosphor-icons/core/regular/eye-slash.svg';
 import fileIcon from '@phosphor-icons/core/regular/file.svg';
 import flowArrowIcon from '@phosphor-icons/core/regular/flow-arrow.svg';
 import handIcon from '@phosphor-icons/core/regular/hand.svg';
-import hexagonIcon from '@phosphor-icons/core/regular/hexagon.svg';
 import keyboardIcon from '@phosphor-icons/core/regular/keyboard.svg';
 import lassoIcon from '@phosphor-icons/core/regular/lasso.svg';
 import layoutIcon from '@phosphor-icons/core/regular/layout.svg';
-import linkSimpleIcon from '@phosphor-icons/core/regular/link-simple.svg';
 import lockIcon from '@phosphor-icons/core/regular/lock.svg';
 import lockOpenIcon from '@phosphor-icons/core/regular/lock-open.svg';
 import magnifyingGlassIcon from '@phosphor-icons/core/regular/magnifying-glass.svg';
 import minusIcon from '@phosphor-icons/core/regular/minus.svg';
-import noteIcon from '@phosphor-icons/core/regular/note.svg';
-import networkIcon from '@phosphor-icons/core/regular/network.svg';
-import parallelogramIcon from '@phosphor-icons/core/regular/parallelogram.svg';
 import plusIcon from '@phosphor-icons/core/regular/plus.svg';
-import projectorIcon from '@phosphor-icons/core/regular/projector-screen-chart.svg';
 import rectangleIcon from '@phosphor-icons/core/regular/rectangle.svg';
-import rowsIcon from '@phosphor-icons/core/regular/rows.svg';
-import shieldCheckIcon from '@phosphor-icons/core/regular/shield-check.svg';
 import shapesIcon from '@phosphor-icons/core/regular/shapes.svg';
 import sidebarIcon from '@phosphor-icons/core/regular/sidebar-simple.svg';
 import sparkleIcon from '@phosphor-icons/core/regular/sparkle.svg';
 import stackIcon from '@phosphor-icons/core/regular/stack.svg';
 import textIcon from '@phosphor-icons/core/regular/text-t.svg';
-import timerIcon from '@phosphor-icons/core/regular/timer.svg';
-import treeIcon from '@phosphor-icons/core/regular/tree-structure.svg';
-import userIcon from '@phosphor-icons/core/regular/user.svg';
 import xIcon from '@phosphor-icons/core/regular/x.svg';
 import { hitTestConnector } from '@openchart/connectors';
 import {
   compileTokenOperations,
-  reconcileContainers,
   TOKEN_PRESET_IDS,
   TOKEN_PRESETS,
   type LayoutMode,
   type TokenPresetId,
+  type BeautyPassPlan,
 } from '@openchart/derive';
 import {
   WINDOWS_COMMANDS,
@@ -107,6 +88,8 @@ import {
 } from '@openchart/render';
 import {
   buildSceneDescription,
+  resolveDocumentLayout,
+  safeHttpUrl,
   type SceneConnectorGeometry,
   type SceneDescription,
   type ScenePathCommand,
@@ -133,9 +116,12 @@ import type {
 
 import {
   isDesktopRuntime,
+  guardDesktopClose,
+  openExternalLink,
   openDesktopDocument,
   parseDesktopDocument,
   saveDesktopDocument,
+  saveDesktopExport,
   serializeOpenChartDocument,
   writeDesktopDocument,
 } from './desktop-file.js';
@@ -156,7 +142,8 @@ import {
   type ConnectorVisualStyleUpdate,
   type ShapeVisualStyleUpdate,
 } from './selection-styling.js';
-import type { StarterTemplateId } from './starter-templates.js';
+import type { StarterTemplateDefinition, StarterTemplateId } from './starter-templates.js';
+import { createBlankInitialDocument } from './initial-document.js';
 
 export interface OpenChartEditorProps {
   readonly initialDocument: OpenChartDocument;
@@ -165,7 +152,7 @@ export interface OpenChartEditorProps {
 type EditorTool = 'select' | 'connector' | 'pan' | 'lasso';
 type ConnectorSide = 'north' | 'east' | 'south' | 'west';
 type InspectorTab = 'design' | 'layers';
-export type BrowserExportFormat = 'svg' | 'png' | 'jpeg' | 'd2' | 'mermaid';
+export type BrowserExportFormat = 'svg' | 'png' | 'jpeg' | 'pdf' | 'pptx' | 'd2' | 'mermaid';
 type BrowserExportScale = 1 | 2 | 4;
 type InsertNodeKind = 'service' | 'system' | 'database' | 'control' | 'container' | 'text';
 
@@ -188,131 +175,9 @@ export interface CatalogShapeRef {
   readonly entryId: string;
 }
 
-const SHAPE_PALETTE: ReadonlyArray<{
-  readonly label: string;
-  readonly items: readonly ShapePaletteItem[];
-}> = [
-  {
-    label: 'Essentials',
-    items: [
-      { label: 'Text', kind: 'text', icon: textIcon },
-      { label: 'System boundary', kind: 'container', icon: rectangleIcon },
-      { label: 'Note', kind: 'control', icon: noteIcon, shape: { libraryId: 'generic', entryId: 'generic.document' } },
-      { label: 'Actor', kind: 'control', icon: userIcon, shape: { libraryId: 'generic', entryId: 'generic.user' } },
-      { label: 'External system', kind: 'system', icon: bracketsCurlyIcon, shape: { libraryId: 'generic', entryId: 'generic.external-system' } },
-      { label: 'Cloud', kind: 'service', icon: cloudIcon, shape: { libraryId: 'generic', entryId: 'generic.cloud' } },
-    ],
-  },
-  {
-    label: 'Flowchart',
-    items: [
-      { label: 'Process', kind: 'system', icon: rectangleIcon, shape: { libraryId: 'flowchart', entryId: 'flowchart.process' } },
-      { label: 'Decision', kind: 'control', icon: diamondIcon, shape: { libraryId: 'flowchart', entryId: 'flowchart.decision' }, size: { width: 160, height: 120 } },
-      { label: 'Start / End', kind: 'service', icon: circleIcon, shape: { libraryId: 'flowchart', entryId: 'flowchart.terminator' } },
-      { label: 'Data', kind: 'control', icon: parallelogramIcon, shape: { libraryId: 'flowchart', entryId: 'flowchart.data' } },
-      { label: 'Document', kind: 'control', icon: noteIcon, shape: { libraryId: 'flowchart', entryId: 'flowchart.document' } },
-      { label: 'Stored data', kind: 'database', icon: cylinderIcon, shape: { libraryId: 'flowchart', entryId: 'flowchart.database' } },
-      { label: 'Preparation', kind: 'control', icon: hexagonIcon, shape: { libraryId: 'flowchart', entryId: 'flowchart.preparation' } },
-      { label: 'Manual input', kind: 'control', icon: parallelogramIcon, shape: { libraryId: 'flowchart', entryId: 'flowchart.manual-input' } },
-      { label: 'Connector', kind: 'control', icon: circleIcon, shape: { libraryId: 'flowchart', entryId: 'flowchart.connector' }, size: { width: 72, height: 72 } },
-      { label: 'Delay', kind: 'control', icon: timerIcon, shape: { libraryId: 'flowchart', entryId: 'flowchart.delay' } },
-    ],
-  },
-  {
-    label: 'Integration',
-    items: [
-      { label: 'API gateway', kind: 'control', icon: codeIcon, shape: { libraryId: 'integration', entryId: 'integration.api-gateway' } },
-      { label: 'Service', kind: 'service', icon: flowArrowIcon, shape: { libraryId: 'integration', entryId: 'integration.service' } },
-      { label: 'Queue', kind: 'service', icon: rowsIcon, shape: { libraryId: 'integration', entryId: 'integration.queue' } },
-      { label: 'Topic', kind: 'service', icon: circleIcon, shape: { libraryId: 'integration', entryId: 'integration.topic' } },
-      { label: 'Event bus', kind: 'service', icon: arrowsSplitIcon, shape: { libraryId: 'integration', entryId: 'integration.event-bus' } },
-      { label: 'Stream', kind: 'service', icon: flowArrowIcon, shape: { libraryId: 'integration', entryId: 'integration.stream' } },
-      { label: 'Function', kind: 'service', icon: hexagonIcon, shape: { libraryId: 'integration', entryId: 'integration.function' } },
-      { label: 'Database', kind: 'database', icon: databaseIcon, shape: { libraryId: 'integration', entryId: 'integration.database' } },
-      { label: 'Cache', kind: 'database', icon: cylinderIcon, shape: { libraryId: 'integration', entryId: 'integration.cache' } },
-      { label: 'Webhook', kind: 'control', icon: linkSimpleIcon, shape: { libraryId: 'integration', entryId: 'integration.webhook' } },
-      { label: 'External SaaS', kind: 'service', icon: cloudIcon, shape: { libraryId: 'integration', entryId: 'integration.external-saas' } },
-      { label: 'Client', kind: 'service', icon: projectorIcon, shape: { libraryId: 'integration', entryId: 'integration.client' } },
-    ],
-  },
-  {
-    label: 'Architecture',
-    items: [
-      { label: 'Architecture app', kind: 'service', icon: projectorIcon, shape: { libraryId: 'architecture', entryId: 'architecture.application' } },
-      { label: 'Microservice', kind: 'service', icon: flowArrowIcon, shape: { libraryId: 'architecture', entryId: 'architecture.microservice' } },
-      { label: 'Architecture API gateway', kind: 'control', icon: codeIcon, shape: { libraryId: 'architecture', entryId: 'architecture.api-gateway' } },
-      { label: 'Architecture cloud', kind: 'system', icon: cloudIcon, shape: { libraryId: 'architecture', entryId: 'architecture.cloud' } },
-      { label: 'Kubernetes cluster', kind: 'system', icon: networkIcon, shape: { libraryId: 'architecture', entryId: 'architecture.kubernetes-cluster' }, size: { width: 260, height: 170 } },
-      { label: 'Trust boundary', kind: 'system', icon: shieldCheckIcon, shape: { libraryId: 'architecture', entryId: 'architecture.trust-boundary' }, size: { width: 260, height: 170 } },
-    ],
-  },
-  {
-    label: 'Cloud',
-    items: [
-      { label: 'AWS EC2', kind: 'service', icon: projectorIcon, shape: { libraryId: 'aws', entryId: 'aws.ec2' } },
-      { label: 'AWS S3', kind: 'database', icon: cylinderIcon, shape: { libraryId: 'aws', entryId: 'aws.s3' } },
-      { label: 'AWS SQS', kind: 'service', icon: rowsIcon, shape: { libraryId: 'aws', entryId: 'aws.sqs' } },
-      { label: 'AWS Lambda', kind: 'service', icon: hexagonIcon, shape: { libraryId: 'aws', entryId: 'aws.lambda' } },
-      { label: 'Azure VM', kind: 'service', icon: projectorIcon, shape: { libraryId: 'azure', entryId: 'azure.virtual-machine' } },
-      { label: 'Azure Blob Storage', kind: 'database', icon: cylinderIcon, shape: { libraryId: 'azure', entryId: 'azure.blob-storage' } },
-      { label: 'Azure Service Bus', kind: 'service', icon: rowsIcon, shape: { libraryId: 'azure', entryId: 'azure.service-bus' } },
-      { label: 'Azure Functions', kind: 'service', icon: hexagonIcon, shape: { libraryId: 'azure', entryId: 'azure.functions' } },
-      { label: 'GCP Compute Engine', kind: 'service', icon: projectorIcon, shape: { libraryId: 'gcp', entryId: 'gcp.compute-engine' } },
-      { label: 'GCP Cloud Storage', kind: 'database', icon: cylinderIcon, shape: { libraryId: 'gcp', entryId: 'gcp.cloud-storage' } },
-      { label: 'GCP Pub/Sub', kind: 'service', icon: rowsIcon, shape: { libraryId: 'gcp', entryId: 'gcp.pub-sub' } },
-      { label: 'GCP Cloud Functions', kind: 'service', icon: hexagonIcon, shape: { libraryId: 'gcp', entryId: 'gcp.cloud-functions' } },
-    ],
-  },
-  {
-    label: 'BPMN',
-    items: [
-      { label: 'BPMN Start event', kind: 'control', icon: circleIcon, shape: { libraryId: 'bpmn', entryId: 'bpmn.start-event' }, size: { width: 72, height: 72 } },
-      { label: 'BPMN Task', kind: 'service', icon: rectangleIcon, shape: { libraryId: 'bpmn', entryId: 'bpmn.task' } },
-      { label: 'BPMN User task', kind: 'service', icon: userIcon, shape: { libraryId: 'bpmn', entryId: 'bpmn.user-task' } },
-      { label: 'BPMN Exclusive gateway', kind: 'control', icon: diamondIcon, shape: { libraryId: 'bpmn', entryId: 'bpmn.exclusive-gateway' }, size: { width: 96, height: 96 } },
-      { label: 'BPMN Parallel gateway', kind: 'control', icon: plusIcon, shape: { libraryId: 'bpmn', entryId: 'bpmn.parallel-gateway' }, size: { width: 96, height: 96 } },
-      { label: 'BPMN Pool', kind: 'system', icon: rowsIcon, shape: { libraryId: 'bpmn', entryId: 'bpmn.pool-container' }, size: { width: 360, height: 220 } },
-    ],
-  },
-  {
-    label: 'UML',
-    items: [
-      { label: 'UML Class', kind: 'control', icon: rectangleIcon, shape: { libraryId: 'uml', entryId: 'uml.class' } },
-      { label: 'UML Interface', kind: 'control', icon: rectangleIcon, shape: { libraryId: 'uml', entryId: 'uml.interface' } },
-      { label: 'UML Actor', kind: 'control', icon: userIcon, shape: { libraryId: 'uml', entryId: 'uml.actor' } },
-      { label: 'UML Use case', kind: 'control', icon: circleIcon, shape: { libraryId: 'uml', entryId: 'uml.use-case' } },
-      { label: 'UML Component', kind: 'service', icon: stackIcon, shape: { libraryId: 'uml', entryId: 'uml.component-node' } },
-      { label: 'UML Deployment node', kind: 'system', icon: projectorIcon, shape: { libraryId: 'uml', entryId: 'uml.deployment-node-3d' } },
-    ],
-  },
-  {
-    label: 'ERD',
-    items: [
-      { label: 'ERD Entity', kind: 'database', icon: rectangleIcon, shape: { libraryId: 'erd', entryId: 'erd.entity' } },
-      { label: 'ERD Weak entity', kind: 'database', icon: rectangleIcon, shape: { libraryId: 'erd', entryId: 'erd.weak-entity' } },
-      { label: 'ERD Relationship', kind: 'control', icon: diamondIcon, shape: { libraryId: 'erd', entryId: 'erd.relationship' } },
-      { label: 'ERD Attribute', kind: 'control', icon: circleIcon, shape: { libraryId: 'erd', entryId: 'erd.attribute' } },
-      { label: 'ERD Associative entity', kind: 'database', icon: stackIcon, shape: { libraryId: 'erd', entryId: 'erd.associative-entity' } },
-      { label: 'ERD Supertype', kind: 'database', icon: treeIcon, shape: { libraryId: 'erd', entryId: 'erd.supertype' } },
-    ],
-  },
-  {
-    label: 'Network',
-    items: [
-      { label: 'Router', kind: 'service', icon: treeIcon, shape: { libraryId: 'network', entryId: 'network.router' }, size: { width: 112, height: 112 } },
-      { label: 'Switch', kind: 'service', icon: rowsIcon, shape: { libraryId: 'network', entryId: 'network.switch' } },
-      { label: 'Firewall', kind: 'control', icon: shieldCheckIcon, shape: { libraryId: 'network', entryId: 'network.firewall' } },
-      { label: 'Load balancer', kind: 'service', icon: arrowsSplitIcon, shape: { libraryId: 'network', entryId: 'network.load-balancer' } },
-      { label: 'Server', kind: 'service', icon: projectorIcon, shape: { libraryId: 'network', entryId: 'network.server' } },
-      { label: 'Workstation', kind: 'service', icon: projectorIcon, shape: { libraryId: 'network', entryId: 'network.workstation' } },
-      { label: 'Cloud network', kind: 'system', icon: networkIcon, shape: { libraryId: 'network', entryId: 'network.cloud' } },
-      { label: 'Internet', kind: 'system', icon: cloudIcon, shape: { libraryId: 'network', entryId: 'network.internet' } },
-      { label: 'VPN', kind: 'control', icon: shieldCheckIcon, shape: { libraryId: 'network', entryId: 'network.vpn' } },
-      { label: 'Gateway', kind: 'control', icon: flowArrowIcon, shape: { libraryId: 'network', entryId: 'network.gateway' } },
-      { label: 'Subnet', kind: 'system', icon: bracketsCurlyIcon, shape: { libraryId: 'network', entryId: 'network.subnet' }, size: { width: 240, height: 160 } },
-      { label: 'DNS', kind: 'database', icon: databaseIcon, shape: { libraryId: 'network', entryId: 'network.dns' } },
-    ],
-  },
+const DRAWING_TOOLS: readonly ShapePaletteItem[] = [
+  { label: 'Text', kind: 'text', icon: textIcon },
+  { label: 'System boundary', kind: 'container', icon: rectangleIcon },
 ];
 
 const CONNECT_CREATE_SHAPE: ShapePaletteItem = {
@@ -670,14 +535,12 @@ function CatalogShapePreview({
     return <Icon src={shapesIcon} size={24} />;
   }
   const { width, height } = resolved.definition.defaultSize;
-  const scale = 38 / Math.max(width, height);
-  const frame = { x: 24 - width * scale / 2, y: 24 - height * scale / 2, width: width * scale, height: height * scale };
-  const evaluated = evaluateShapeDefinition(resolved.definition, { frame });
+  const evaluated = evaluateShapeDefinition(resolved.definition);
   if (!evaluated.ok) {
     return <Icon src={shapesIcon} size={24} />;
   }
   return (
-    <svg viewBox="0 0 48 48" aria-hidden="true">
+    <svg viewBox={`-8 -8 ${width + 16} ${height + 16}`} aria-hidden="true">
       {evaluated.shape.geometry.map((geometry, index) => shapeGeometry(geometry, `${result.entry.id}-${index}`))}
     </svg>
   );
@@ -766,7 +629,7 @@ function downloadBlob(blob: Blob, filename: string): void {
   window.document.body.append(anchor);
   anchor.click();
   anchor.remove();
-  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
 async function rasterizeScene(
@@ -775,6 +638,11 @@ async function rasterizeScene(
   format: Extract<BrowserExportFormat, 'png' | 'jpeg'>,
   scale: BrowserExportScale,
 ): Promise<Blob> {
+  const width = Math.max(1, Math.round(scene.bounds.width * scale));
+  const height = Math.max(1, Math.round(scene.bounds.height * scale));
+  if (width > 32_768 || height > 32_768 || width * height > 64 * 1024 * 1024) {
+    throw new Error('Export is too large. Reduce the raster scale or diagram size.');
+  }
   const source = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
   try {
     const image = new Image();
@@ -786,8 +654,8 @@ async function rasterizeScene(
       image.src = source;
     });
     const canvas = window.document.createElement('canvas');
-    canvas.width = Math.round(scene.bounds.width * scale);
-    canvas.height = Math.round(scene.bounds.height * scale);
+    canvas.width = width;
+    canvas.height = height;
     const context = canvas.getContext('2d');
     if (context === null) {
       throw new Error('Canvas export is unavailable');
@@ -810,18 +678,18 @@ async function rasterizeScene(
 }
 
 function printScene(scene: SceneDescription): void {
-  const popup = window.open('', 'openchart-print', 'popup,width=1200,height=800');
-  if (popup === null) {
-    throw new Error('Allow the OpenChart print window and try again');
-  }
-  const svg = renderSceneToSvg(scene);
-  popup.document.open();
-  popup.document.write(`<!doctype html><html><head><title>${scene.title.replace(/[&<>]/g, '')}</title><style>html,body{margin:0;background:white}svg{display:block;width:100%;height:auto}@page{margin:8mm}</style></head><body>${svg}</body></html>`);
-  popup.document.close();
-  window.setTimeout(() => {
-    popup.focus();
-    popup.print();
-  }, 0);
+  const frame = window.document.createElement('iframe');
+  frame.title = 'Print diagram';
+  frame.style.cssText = 'position:fixed;left:-10000px;width:1px;height:1px;border:0';
+  frame.onload = () => {
+    const target = frame.contentWindow;
+    if (target === null) { frame.remove(); return; }
+    target.addEventListener('afterprint', () => frame.remove(), { once: true });
+    void target.document.fonts.ready.then(() => { target.focus(); target.print(); });
+  };
+  const title = scene.title.replace(/[&<>]/g, '');
+  frame.srcdoc = `<!doctype html><html><head><title>${title}</title><style>html,body{margin:0;background:white}svg{display:block;width:100%;height:auto}@page{margin:8mm}</style></head><body>${renderSceneToSvg(scene)}</body></html>`;
+  window.document.body.append(frame);
 }
 
 function compareIds(left: string, right: string): number {
@@ -899,15 +767,6 @@ function oppositeConnectorSide(
         : 'east';
 }
 
-function canvasDimension(document: OpenChartDocument, key: 'canvasWidth' | 'canvasHeight'): number {
-  const value = document.layout.options?.[key];
-  return typeof value === 'number' && Number.isFinite(value) && value > 0
-    ? value
-    : key === 'canvasWidth'
-      ? 1440
-      : 920;
-}
-
 function orderedPages(document: OpenChartDocument): readonly Page[] {
   return Object.values(document.pages).sort((left, right) => {
     const order = (left.order ?? Number.MAX_SAFE_INTEGER) - (right.order ?? Number.MAX_SAFE_INTEGER);
@@ -915,43 +774,12 @@ function orderedPages(document: OpenChartDocument): readonly Page[] {
   });
 }
 
-function resolveFrames(document: OpenChartDocument): Readonly<Record<string, TransformFrame>> {
-  const width = canvasDimension(document, 'canvasWidth');
-  const nodeIds = Object.keys(document.nodes).sort(compareIds);
-  const baseFrames: Record<string, TransformFrame> = {};
-  for (let index = 0; index < nodeIds.length; index += 1) {
-    const id = nodeIds[index];
-    if (id === undefined) {
-      continue;
-    }
-    const node = document.nodes[id];
-    if (node === undefined) {
-      continue;
-    }
-    const override = document.layout.overrides[id];
-    const fallbackSize = DEFAULT_NODE_SIZE[node.kind] ?? DEFAULT_NODE_SIZE.service;
-    const columns = Math.max(1, Math.floor((width - 120) / 340));
-    const column = index % columns;
-    const row = Math.floor(index / columns);
-    baseFrames[id] = {
-      x: override?.x ?? 80 + column * 340,
-      y: override?.y ?? 180 + row * 210,
-      width: override?.width ?? fallbackSize?.width ?? 300,
-      height: override?.height ?? fallbackSize?.height ?? 154,
-      ...(override?.rotation === undefined ? {} : { rotation: override.rotation }),
-    };
-  }
-  const reconciled = reconcileContainers(document, baseFrames).frames;
-  return Object.fromEntries(
-    nodeIds.map((id) => {
-      const frame = reconciled[id] ?? baseFrames[id];
-      const rotation = baseFrames[id]?.rotation;
-      if (frame === undefined) {
-        throw new Error(`Unable to resolve frame for ${JSON.stringify(id)}`);
-      }
-      return [id, { ...frame, ...(rotation === undefined ? {} : { rotation }) }];
-    }),
-  );
+export function resolveFrames(document: OpenChartDocument, pageId?: string): Readonly<Record<string, TransformFrame>> {
+  const frames = resolveDocumentLayout(document, pageId === undefined ? {} : { pageId }).frames;
+  return Object.fromEntries(Object.entries(frames).map(([id, frame]) => [id, {
+    ...frame,
+    ...(document.layout.overrides[id]?.rotation === undefined ? {} : { rotation: document.layout.overrides[id].rotation }),
+  }]));
 }
 
 function previewDocument(
@@ -1224,7 +1052,7 @@ function fitCameraBounds(bounds: CameraBounds, viewport: ViewportSize): EditorCa
 }
 
 function fitCamera(scene: SceneDescription, viewport: ViewportSize): EditorCamera {
-  return fitCameraBounds(scene.bounds, viewport);
+  return fitCameraBounds(scene.contentBounds ?? scene.bounds, viewport);
 }
 
 function framesBounds(
@@ -3531,11 +3359,58 @@ function ToolIcon({ kind }: { readonly kind: EditorTool }) {
   return <Icon src={icons[kind]} size={16} />;
 }
 
+function SceneThumbnail({ scene, label }: { readonly scene: SceneDescription; readonly label: string }) {
+  const src = useMemo(() => {
+    const previewScene: SceneDescription = { ...scene, items: scene.items.map((item) =>
+      item.type === 'group' && item.role === 'artboard'
+        ? { ...item, children: item.children.filter((child) => child.id !== 'artboard-header' && child.id !== 'flow-legend') }
+        : item) };
+    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(renderSceneToSvg(previewScene))}`;
+  }, [scene]);
+  return <img className="oc-diagram-preview" src={src} alt={label} draggable={false} />;
+}
+
+function StarterThumbnail({ document, template, templates, pageId, layerId }: {
+  readonly document: OpenChartDocument;
+  readonly template: StarterTemplateDefinition;
+  readonly templates: StarterTemplatesModule;
+  readonly pageId: string;
+  readonly layerId: string;
+}) {
+  const result = useMemo(() => {
+    try {
+      const engine = new OperationEngine({ ...createBlankInitialDocument(document), title: template.name });
+      const transaction = templates.createStarterTemplateTransaction(engine.document, template, {
+        txId: `preview-${template.id}`, pageId, layerId,
+      });
+      const applied = engine.apply(transaction.envelope);
+      if (!applied.ok) throw new Error(applied.diagnostics[0]?.message ?? 'Invalid starter');
+      const scene = buildSceneDescription(engine.document, { pageId });
+      const previewFrames = resolveFrames(engine.document, pageId);
+      const bounds = framesBounds(Object.fromEntries(transaction.nodeIds.map((id) => [id, previewFrames[id]!])));
+      return { scene: { ...scene, bounds: { x: bounds.x - 40, y: bounds.y - 40, width: bounds.width + 80, height: bounds.height + 80 } } };
+    } catch (error: unknown) {
+      return { error: error instanceof Error ? error.message : 'Preview unavailable' };
+    }
+  }, [document, layerId, pageId, template, templates]);
+  return result.scene === undefined
+    ? <small role="status">Preview unavailable: {result.error}</small>
+    : <SceneThumbnail scene={result.scene} label={`${template.name} diagram preview`} />;
+}
+
+interface BeautyPreview {
+  readonly source: OpenChartDocument;
+  readonly envelope: OperationEnvelope;
+  readonly before: SceneDescription;
+  readonly after: SceneDescription;
+  readonly plan: BeautyPassPlan;
+}
+
 export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
   const engineRef = useRef(new OperationEngine(initialDocument));
   const [document, setDocument] = useState(engineRef.current.document);
   const [documentPath, setDocumentPath] = useState<string>();
-  const [savedRevision, setSavedRevision] = useState(initialDocument.rev);
+  const [savedDocument, setSavedDocument] = useState(engineRef.current.document);
   const [browserSaveName, setBrowserSaveName] = useState<string>();
   const [activePageId, setActivePageId] = useState(
     () => orderedPages(initialDocument)[0]?.id ?? '',
@@ -3571,6 +3446,12 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
   const [status, setStatus] = useState('Ready');
   const [layoutMode, setLayoutMode] = useState<LayoutMode>('layered');
   const [derivationBusy, setDerivationBusy] = useState(false);
+  const [beautyOpen, setBeautyOpen] = useState(false);
+  const [beautyPreview, setBeautyPreview] = useState<BeautyPreview | null>(null);
+  const [beautyScope, setBeautyScope] = useState<'page' | 'selection'>('page');
+  const [beautyComparison, setBeautyComparison] = useState<'before' | 'after'>('after');
+  const [beautyError, setBeautyError] = useState('');
+  const beautyRequest = useRef(0);
   const [clipboard, setClipboard] = useState<ClipboardPayload | null>(null);
   const [styleSourceId, setStyleSourceId] = useState<string | null>(null);
   const [fullShapeCatalog, setFullShapeCatalog] = useState<FullShapeCatalogModule>();
@@ -3599,15 +3480,18 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
       if (railShapeQuery.trim().length > 0) {
         return searchCatalog(railShapeQuery, {
           ...(railLibraryId === 'featured' ? {} : { libraryIds: [railLibraryId] }),
-          limit: 18,
+          limit: 60,
         });
       }
       return railLibraryId === 'featured'
         ? []
-        : searchCatalog('', { libraryIds: [railLibraryId], limit: 18 });
+        : searchCatalog('', { libraryIds: [railLibraryId], limit: 60 });
     },
     [railLibraryId, railShapeQuery, searchCatalog],
   );
+  const overviewLibraries = useMemo(() => SHAPE_LIBRARIES.map((library) => ({
+    ...library, previews: searchCatalog('', { libraryIds: [library.id], limit: 6 }),
+  })), [searchCatalog]);
   const recentShapeResults = useMemo(
     () => preferences.recentShapes
       .map((ref) => catalogResultFromRef(ref, getCatalogEntry))
@@ -3683,13 +3567,32 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
       const path = documentPathRef.current;
       if (path !== undefined) {
         await writeDesktopDocument(nextDocument, path);
-        setSavedRevision(nextDocument.rev);
+        setSavedDocument(nextDocument);
       }
     },
     setStatus,
   });
   const liveSession = liveSessionRef.current;
-  const documentDirty = document.rev !== savedRevision;
+  const documentDirty = useMemo(() => document !== savedDocument && (
+    document.rev !== savedDocument.rev || JSON.stringify(document) !== JSON.stringify(savedDocument)
+  ), [document, savedDocument]);
+  const dirtyRef = useRef(documentDirty);
+  dirtyRef.current = documentDirty;
+  useEffect(() => {
+    if (desktopRuntime) {
+      let disposed = false;
+      let unlisten: (() => void) | undefined;
+      void guardDesktopClose(() => dirtyRef.current).then((stop) => {
+        if (disposed) stop(); else unlisten = stop;
+      }).catch((error: unknown) => setStatus(`Close protection unavailable: ${String(error)}`));
+      return () => { disposed = true; unlisten?.(); };
+    }
+    const beforeUnload = (event: BeforeUnloadEvent): void => {
+      if (dirtyRef.current) { event.preventDefault(); event.returnValue = ''; }
+    };
+    window.addEventListener('beforeunload', beforeUnload);
+    return () => window.removeEventListener('beforeunload', beforeUnload);
+  }, [desktopRuntime]);
 
   const nextTransactionId = useCallback((label: string): string => {
     transactionCounter.current += 1;
@@ -3702,7 +3605,7 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
     savePreferences(next);
   }, []);
 
-  const frames = useMemo(() => resolveFrames(document), [document]);
+  const frames = useMemo(() => resolveFrames(document, activePageId), [document, activePageId]);
   const displayDocument = useMemo(() => previewDocument(document, preview), [document, preview]);
   const displayFrames = useMemo(
     () => (preview === null ? frames : { ...frames, ...preview.updates }),
@@ -3847,7 +3750,7 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
       const changed =
         document.layout.engine !== result.engine ||
         document.layout.derivedVersion !== result.derivedVersion ||
-        JSON.stringify(document.layout.derived) !== JSON.stringify(result.frames);
+        JSON.stringify(document.layout.derived) !== JSON.stringify({ ...document.layout.derived, ...result.frames });
       if (changed) {
         commit(
           {
@@ -3859,7 +3762,7 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
               op: 'set_derived_layout',
               engine: result.engine,
               derivedVersion: result.derivedVersion,
-              frames: result.frames,
+              frames: { ...document.layout.derived, ...result.frames },
             }],
           },
           `${layoutMode[0]?.toUpperCase() ?? ''}${layoutMode.slice(1)} layout applied`,
@@ -3875,52 +3778,82 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
     }
   }, [activePageId, commit, derivationBusy, document, layoutMode, nextTransactionId, viewport]);
 
-  const runBeautyPass = useCallback(async (): Promise<void> => {
-    if (activePageId.length === 0 || derivationBusy) {
+  const closeBeautyPreview = useCallback(() => {
+    beautyRequest.current += 1;
+    setBeautyOpen(false);
+    setBeautyPreview(null);
+    setDerivationBusy(false);
+    window.document.querySelector<HTMLButtonElement>('.oc-beauty-button')?.focus();
+  }, []);
+
+  const runBeautyPass = useCallback(async (scope: 'page' | 'selection' = 'page'): Promise<void> => {
+    if (activePageId.length === 0 || derivationBusy) return;
+    const requestId = ++beautyRequest.current;
+    const source = liveSession.document;
+    if (!Object.values(source.nodes).some((node) => node.pageId === activePageId && source.layers[node.layerId]?.visible)) {
+      setStatus('Add shapes before running Beauty Pass');
       return;
     }
+    setBeautyOpen(true);
+    setBeautyScope(scope);
+    setBeautyPreview(null);
+    setBeautyError('');
     setDerivationBusy(true);
-    setStatus('Running the eleven-step Beauty Pass…');
+    setStatus('Preparing Beauty Pass preview…');
     try {
-      const plan = await requestBeautyPass(document, {
-        pageId: activePageId,
-        layoutMode,
-        direction: 'RIGHT',
-        presetId: activePresetId,
+      const plan = await requestBeautyPass(source, {
+        pageId: activePageId, layoutMode, direction: 'RIGHT', presetId: activePresetId,
+        ...(scope === 'selection' ? { nodeIds: selection.selectedIds.filter((id) => source.nodes[id] !== undefined) } : {}),
       });
+      if (requestId !== beautyRequest.current) return;
+      if (liveSession.document !== source) throw new Error('The diagram changed. Generate a new preview before applying.');
+      const envelope: OperationEnvelope = {
+        txId: nextTransactionId('beauty'), actor: 'user', origin: 'beauty', baseRev: source.rev, ops: plan.operations,
+      };
+      const previewEngine = new OperationEngine(source);
       if (plan.operations.length > 0) {
-        const applied = commit(
-          {
-            txId: nextTransactionId('beauty'),
-            actor: 'user',
-            origin: 'beauty',
-            baseRev: document.rev,
-            ops: plan.operations,
-          },
-          `Beauty Pass complete · ${plan.operations.length} edits · one undo`,
-        );
-        if (!applied) {
-          return;
-        }
-      } else {
-        setStatus('Beauty Pass is already current');
+        const applied = previewEngine.apply(envelope);
+        if (!applied.ok) throw new Error(applied.diagnostics[0]?.message ?? 'Beauty Pass preview could not be built');
       }
-      setCamera(fitCameraBounds(plan.fitBounds, viewport));
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : 'Beauty Pass failed');
+      const options = { pageId: activePageId,
+        ...(fullShapeCatalog === undefined ? {} : { shapeResolver: fullShapeCatalog.resolveLibraryShape }) };
+      const before = buildSceneDescription(source, options);
+      const after = buildSceneDescription(previewEngine.document, options);
+      const beforeFrames = resolveFrames(source, activePageId);
+      const afterFrames = resolveFrames(previewEngine.document, activePageId);
+      const comparedIds = Object.values(source.nodes).filter((node) => node.pageId === activePageId &&
+        source.layers[node.layerId]?.visible === true &&
+        (scope === 'page' || selection.selectedIds.includes(node.id))).map((node) => node.id);
+      const contentBounds = framesBounds(Object.fromEntries(comparedIds.flatMap((id) => [
+        [`before-${id}`, beforeFrames[id]!], [`after-${id}`, afterFrames[id]!],
+      ])));
+      const bounds = { x: contentBounds.x - 64, y: contentBounds.y - 64,
+        width: contentBounds.width + 128, height: contentBounds.height + 128 };
+      setBeautyPreview({ source, envelope, plan, before: { ...before, bounds }, after: { ...after, bounds } });
+      setBeautyComparison('after');
+      setStatus(plan.operations.length === 0 ? 'This diagram is already tidy' : 'Beauty Pass preview ready. Review before applying.');
+    } catch (error: unknown) {
+      if (requestId === beautyRequest.current) {
+        const message = error instanceof Error ? error.message : 'Beauty Pass failed';
+        setBeautyError(message);
+        setStatus(message);
+      }
     } finally {
-      setDerivationBusy(false);
+      if (requestId === beautyRequest.current) setDerivationBusy(false);
     }
-  }, [
-    activePageId,
-    activePresetId,
-    commit,
-    derivationBusy,
-    document,
-    layoutMode,
-    nextTransactionId,
-    viewport,
-  ]);
+  }, [activePageId, activePresetId, derivationBusy, fullShapeCatalog, layoutMode, liveSession, nextTransactionId, selection.selectedIds]);
+
+  const applyBeautyPreview = (): void => {
+    if (beautyPreview === null || beautyPreview.source !== liveSession.document) {
+      setBeautyError('The diagram changed. Generate a new preview before applying.');
+      return;
+    }
+    if (commit(beautyPreview.envelope, 'Beauty Pass applied · Ctrl+Z to undo')) {
+      setCamera(fitCamera(buildSceneDescription(liveSession.document, { pageId: activePageId,
+        ...(fullShapeCatalog === undefined ? {} : { shapeResolver: fullShapeCatalog.resolveLibraryShape }) }), viewport));
+      closeBeautyPreview();
+    }
+  };
 
   const commitTransform = useCallback(
     (nextPreview: TransformPreview, message?: string) => {
@@ -4921,7 +4854,7 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
       liveSession.reset(nextEngine);
       documentPathRef.current = opened.path;
       setDocumentPath(opened.path);
-      setSavedRevision(nextEngine.document.rev);
+      setSavedDocument(nextEngine.document);
       setBrowserSaveName(opened.browserName);
       setActivePageId(pageId);
       setSelection(createSelectionState());
@@ -5030,7 +4963,7 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
           filename,
         );
         setBrowserSaveName(filename);
-        setSavedRevision(document.rev);
+        setSavedDocument(document);
         setOutputOpen(false);
         setStatus(`Saved ${filename}`);
         return;
@@ -5050,7 +4983,7 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
         }
         documentPathRef.current = savedPath;
         setDocumentPath(savedPath);
-        setSavedRevision(document.rev);
+        setSavedDocument(document);
         setOutputOpen(false);
         setStatus(`Saved ${displayFilename(savedPath)}`);
       } catch (error: unknown) {
@@ -5614,12 +5547,20 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape' && window.document.querySelector(':popover-open') !== null) return;
+      if (beautyOpen) {
+        if (event.key === 'Escape') { event.preventDefault(); closeBeautyPreview(); }
+        if (event.ctrlKey || event.metaKey || event.key === 'Delete' || event.key === 'Backspace') {
+          event.preventDefault();
+        }
+        return;
+      }
       const target = event.target;
       const isTextTarget =
         target instanceof HTMLInputElement ||
         target instanceof HTMLTextAreaElement ||
         target instanceof HTMLSelectElement ||
-        target instanceof HTMLButtonElement ||
+        (target instanceof HTMLButtonElement && !event.ctrlKey && !event.altKey) ||
         (target instanceof HTMLElement && target.isContentEditable);
       const isCanvasTarget =
         target instanceof HTMLCanvasElement && target.classList.contains('oc-canvas-overlay');
@@ -5702,10 +5643,11 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [beginTextEdit, canvasNavigation, document.nodes, editing, moveObjectDirection, selection.selectedIds]);
+  }, [beautyOpen, closeBeautyPreview, beginTextEdit, canvasNavigation, document.nodes, editing, moveObjectDirection, selection.selectedIds]);
 
   useEffect(() => {
     if (
+      !beautyOpen &&
       !outputOpen &&
       !preferencesOpen &&
       !templateOpen &&
@@ -5731,7 +5673,10 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
       if (first === undefined || last === undefined) {
         return;
       }
-      if (event.shiftKey && window.document.activeElement === first) {
+      if (!dialog.contains(window.document.activeElement)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && window.document.activeElement === first) {
         event.preventDefault();
         last.focus();
       } else if (!event.shiftKey && window.document.activeElement === last) {
@@ -5739,9 +5684,9 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
         first.focus();
       }
     };
-    dialog.addEventListener('keydown', keepFocusInside);
-    return () => dialog.removeEventListener('keydown', keepFocusInside);
-  }, [linkEditor, outputOpen, preferencesOpen, shapeManagerOpen, shortcutOpen, templateOpen]);
+    window.document.addEventListener('keydown', keepFocusInside);
+    return () => window.document.removeEventListener('keydown', keepFocusInside);
+  }, [beautyOpen, linkEditor, outputOpen, preferencesOpen, shapeManagerOpen, shortcutOpen, templateOpen]);
 
   useEffect(() => {
     const selectionStale = (id: string): boolean => {
@@ -6021,9 +5966,9 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
           ...(parentId === undefined ? {} : { parentId }),
         },
       });
-      const layout = document.layout.overrides[source.id];
-      if (layout !== undefined) {
-        ops.push({ op: 'set_node_layout', id, layout: { ...layout } });
+      const frame = frames[source.id];
+      if (frame !== undefined) {
+        ops.push({ op: 'set_node_layout', id, layout: { ...document.layout.overrides[source.id], ...frame, pinned: true } });
       }
     }
     for (const source of sourcePorts) {
@@ -6051,6 +5996,8 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
             layerId,
           },
         });
+        const layout = document.layout.edgeOverrides?.[source.id];
+        if (layout !== undefined) ops.push({ op: 'set_edge_layout', id, layout: structuredClone(layout) });
       }
     }
     if (
@@ -6112,15 +6059,20 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
       return;
     }
     setExportBusy(true);
+    const saveExport = async (blob: Blob, filename: string): Promise<boolean> => {
+      if (desktopRuntime) return saveDesktopExport(blob, filename);
+      downloadBlob(blob, filename);
+      return true;
+    };
     try {
       const format = preferences.exportFormat;
       if (format === 'd2' || format === 'mermaid') {
         const { createBrowserTextExport } = await loadBrowserTextExport();
         const exported = createBrowserTextExport(document, format, activePage?.id);
-        downloadBlob(
+        if (!await saveExport(
           new Blob([exported.content], { type: exported.mimeType }),
           `${safeFilename(document.title)}.${exported.extension}`,
-        );
+        )) return;
         const label = format === 'd2' ? 'D2' : 'Mermaid';
         setStatus(
           `Exported ${label}${exported.losses.length === 0
@@ -6130,12 +6082,27 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
         setOutputOpen(false);
         return;
       }
-      const svg = renderSceneToSvg(scene);
+      // Export a committed scene with the full icon resolver, even if its lazy UI
+      // load has not finished yet.
+      const catalog = documentUsesDecorativeShapes(document) ? await loadFullShapeCatalog() : undefined;
+      const exportScene = buildSceneDescription(document, { pageId: activePageId,
+        ...(catalog === undefined ? {} : { shapeResolver: catalog.resolveLibraryShape }) });
+      const svg = renderSceneToSvg(exportScene);
+      if (format === 'pdf' || format === 'pptx') {
+        const { exportOfficeBlob } = await import('@openchart/serialize/browser-export');
+        const fallback = format === 'pptx'
+          ? new Uint8Array(await (await rasterizeScene(svg, exportScene, 'png', 1)).arrayBuffer()) : undefined;
+        const blob = await exportOfficeBlob(exportScene, format, fallback);
+        if (!await saveExport(blob, `${safeFilename(document.title)}.${format}`)) return;
+        setStatus(`Exported ${format === 'pdf' ? 'PDF' : 'PowerPoint'}`);
+        setOutputOpen(false);
+        return;
+      }
       const blob = format === 'svg'
         ? new Blob([svg], { type: 'image/svg+xml' })
-        : await rasterizeScene(svg, scene, format, preferences.exportScale);
+        : await rasterizeScene(svg, exportScene, format, preferences.exportScale);
       const extension = format === 'jpeg' ? 'jpg' : format;
-      downloadBlob(blob, `${safeFilename(document.title)}.${extension}`);
+      if (!await saveExport(blob, `${safeFilename(document.title)}.${extension}`)) return;
       setStatus(
         `Exported ${format.toUpperCase()}${format === 'svg' ? '' : ` at ${preferences.exportScale}×`}`,
       );
@@ -6197,9 +6164,11 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
         commit(
           transaction.envelope,
           `${template.name} starter applied`,
-          { scopeId: selection.scopeId, selectedIds: transaction.nodeIds },
+          createSelectionState(),
         )
       ) {
+        const nextScene = buildSceneDescription(liveSession.document, { pageId: activePage.id });
+        setCamera(fitCamera(nextScene, viewport));
         setTemplateOpen(false);
       }
     } catch (error: unknown) {
@@ -6292,153 +6261,158 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
               <ToolIcon kind={candidate} />
             </button>
           ))}
-          <span className="oc-toolbar-divider" />
-          <label className="oc-font-size-select">
-            <span className="oc-visually-hidden">Font size</span>
-            <select
-              aria-label="Font size"
+          {selectedTextData !== undefined ? <button type="button" popoverTarget="oc-text-format" className="oc-format-trigger">Text style</button> : null}
+          <div id="oc-text-format" popover="auto" className="oc-toolbar-popup" aria-label="Text formatting">
+            <label className="oc-font-size-select">
+              <span className="oc-visually-hidden">Font size</span>
+              <select
+                aria-label="Font size"
+                disabled={selectedTextData === undefined}
+                value={typeof selectedTextData?.fontSize === 'number' ? selectedTextData.fontSize : selectedEdge === undefined ? 18 : 10}
+                onChange={(event) => updateTextStyle('fontSize', Number(event.currentTarget.value))}
+              >
+                {[8, 10, 12, 14, 16, 18, 20, 24, 28, 32, 40, 48, 64, 72, 96].map((size) => (
+                  <option value={size} key={size}>{size} pt</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span className="oc-visually-hidden">Font family</span>
+              <select
+                aria-label="Font family"
+                disabled={selectedTextData === undefined}
+                value={typeof selectedTextData?.fontFamily === 'string'
+                  ? selectedTextData.fontFamily
+                  : selectedEdge === undefined
+                    ? 'Aptos Display, Segoe UI, sans-serif'
+                    : 'Segoe UI, Arial, sans-serif'}
+                onChange={(event) => updateTextStyle('fontFamily', event.currentTarget.value)}
+              >
+                <option value="Aptos Display, Segoe UI, sans-serif">Aptos</option>
+                <option value="Segoe UI, Arial, sans-serif">Segoe UI</option>
+                <option value="Arial, sans-serif">Arial</option>
+                <option value="Georgia, serif">Georgia</option>
+                <option value="Cascadia Code, Consolas, monospace">Cascadia Code</option>
+                <option value="Consolas, monospace">Consolas</option>
+              </select>
+            </label>
+            <button
+              type="button"
+              className={selectedTextData?.fontWeight === 700 ? 'is-active' : ''}
+              aria-pressed={selectedTextData?.fontWeight === 700}
+              onClick={() => executeCommand('bold')}
               disabled={selectedTextData === undefined}
-              value={typeof selectedTextData?.fontSize === 'number' ? selectedTextData.fontSize : selectedEdge === undefined ? 18 : 10}
-              onChange={(event) => updateTextStyle('fontSize', Number(event.currentTarget.value))}
-            >
-              {[8, 10, 12, 14, 16, 18, 20, 24, 28, 32, 40, 48, 64, 72, 96].map((size) => (
-                <option value={size} key={size}>{size} pt</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span className="oc-visually-hidden">Font family</span>
-            <select
-              aria-label="Font family"
+              title="Bold (Ctrl+B)"
+            ><strong>B</strong></button>
+            <button
+              type="button"
+              className={selectedTextData?.fontStyle === 'italic' ? 'is-active' : ''}
+              aria-pressed={selectedTextData?.fontStyle === 'italic'}
+              onClick={() => executeCommand('italic')}
               disabled={selectedTextData === undefined}
-              value={typeof selectedTextData?.fontFamily === 'string'
-                ? selectedTextData.fontFamily
-                : selectedEdge === undefined
-                  ? 'Aptos Display, Segoe UI, sans-serif'
-                  : 'Segoe UI, Arial, sans-serif'}
-              onChange={(event) => updateTextStyle('fontFamily', event.currentTarget.value)}
-            >
-              <option value="Aptos Display, Segoe UI, sans-serif">Aptos</option>
-              <option value="Segoe UI, Arial, sans-serif">Segoe UI</option>
-              <option value="Arial, sans-serif">Arial</option>
-              <option value="Georgia, serif">Georgia</option>
-              <option value="Cascadia Code, Consolas, monospace">Cascadia Code</option>
-              <option value="Consolas, monospace">Consolas</option>
-            </select>
-          </label>
-          <button
-            type="button"
-            className={selectedTextData?.fontWeight === 700 ? 'is-active' : ''}
-            aria-pressed={selectedTextData?.fontWeight === 700}
-            onClick={() => executeCommand('bold')}
-            disabled={selectedTextData === undefined}
-            title="Bold (Ctrl+B)"
-          ><strong>B</strong></button>
-          <button
-            type="button"
-            className={selectedTextData?.fontStyle === 'italic' ? 'is-active' : ''}
-            aria-pressed={selectedTextData?.fontStyle === 'italic'}
-            onClick={() => executeCommand('italic')}
-            disabled={selectedTextData === undefined}
-            title="Italic (Ctrl+I)"
-          ><em>I</em></button>
-          <button
-            type="button"
-            className={selectedTextData?.underline === true ? 'is-active' : ''}
-            aria-pressed={selectedTextData?.underline === true}
-            onClick={() => executeCommand('underline')}
-            disabled={selectedTextData === undefined}
-            title="Underline (Ctrl+U)"
-          ><span style={{ textDecoration: 'underline' }}>U</span></button>
-          <button
-            type="button"
-            className={selectedTextData?.textAlign === 'left' || (selectedTextData?.textAlign === undefined && selectedEdge === undefined) ? 'is-active' : ''}
-            aria-pressed={selectedTextData?.textAlign === 'left' || (selectedTextData?.textAlign === undefined && selectedEdge === undefined)}
-            onClick={() => updateTextStyle('textAlign', 'left')}
-            disabled={selectedTextData === undefined}
-            title="Align left"
-          >≡</button>
-          <button
-            type="button"
-            className={selectedTextData?.textAlign === 'center' || (selectedTextData?.textAlign === undefined && selectedEdge !== undefined) ? 'is-active' : ''}
-            aria-pressed={selectedTextData?.textAlign === 'center' || (selectedTextData?.textAlign === undefined && selectedEdge !== undefined)}
-            onClick={() => updateTextStyle('textAlign', 'center')}
-            disabled={selectedTextData === undefined}
-            title="Align center"
-          >≡</button>
-          <button
-            type="button"
-            className={selectedTextData?.textAlign === 'right' ? 'is-active' : ''}
-            aria-pressed={selectedTextData?.textAlign === 'right'}
-            onClick={() => updateTextStyle('textAlign', 'right')}
-            disabled={selectedTextData === undefined}
-            title="Align right"
-          >≡</button>
-          <label className="oc-color-field">
-            <span className="oc-visually-hidden">Text color</span>
-            <input
-              type="color"
-              aria-label="Text color"
+              title="Italic (Ctrl+I)"
+            ><em>I</em></button>
+            <button
+              type="button"
+              className={selectedTextData?.underline === true ? 'is-active' : ''}
+              aria-pressed={selectedTextData?.underline === true}
+              onClick={() => executeCommand('underline')}
               disabled={selectedTextData === undefined}
-              value={typeof selectedTextData?.textColor === 'string' && /^#[0-9a-f]{6}$/i.test(selectedTextData.textColor)
-                ? selectedTextData.textColor
-                : '#0F172A'}
-              onChange={(event) => updateTextStyle('textColor', event.currentTarget.value)}
-            />
-          </label>
-          <label className="oc-font-size-select">
-            <span className="oc-visually-hidden">Line height</span>
-            <select
-              aria-label="Line height"
+              title="Underline (Ctrl+U)"
+            ><span style={{ textDecoration: 'underline' }}>U</span></button>
+            <button
+              type="button"
+              className={selectedTextData?.textAlign === 'left' || (selectedTextData?.textAlign === undefined && selectedEdge === undefined) ? 'is-active' : ''}
+              aria-pressed={selectedTextData?.textAlign === 'left' || (selectedTextData?.textAlign === undefined && selectedEdge === undefined)}
+              onClick={() => updateTextStyle('textAlign', 'left')}
               disabled={selectedTextData === undefined}
-              value={typeof selectedTextData?.lineHeight === 'number' ? selectedTextData.lineHeight : 1.2}
-              onChange={(event) => updateTextStyle('lineHeight', Number(event.currentTarget.value))}
-            >
-              {[1, 1.1, 1.2, 1.35, 1.5, 1.75, 2].map((lineHeight) => (
-                <option value={lineHeight} key={lineHeight}>{lineHeight}×</option>
-              ))}
-            </select>
-          </label>
+              title="Align left"
+            >≡</button>
+            <button
+              type="button"
+              className={selectedTextData?.textAlign === 'center' || (selectedTextData?.textAlign === undefined && selectedEdge !== undefined) ? 'is-active' : ''}
+              aria-pressed={selectedTextData?.textAlign === 'center' || (selectedTextData?.textAlign === undefined && selectedEdge !== undefined)}
+              onClick={() => updateTextStyle('textAlign', 'center')}
+              disabled={selectedTextData === undefined}
+              title="Align center"
+            >≡</button>
+            <button
+              type="button"
+              className={selectedTextData?.textAlign === 'right' ? 'is-active' : ''}
+              aria-pressed={selectedTextData?.textAlign === 'right'}
+              onClick={() => updateTextStyle('textAlign', 'right')}
+              disabled={selectedTextData === undefined}
+              title="Align right"
+            >≡</button>
+            <label className="oc-color-field">
+              <span className="oc-visually-hidden">Text color</span>
+              <input
+                type="color"
+                aria-label="Text color"
+                disabled={selectedTextData === undefined}
+                value={typeof selectedTextData?.textColor === 'string' && /^#[0-9a-f]{6}$/i.test(selectedTextData.textColor)
+                  ? selectedTextData.textColor
+                  : '#0F172A'}
+                onChange={(event) => updateTextStyle('textColor', event.currentTarget.value)}
+              />
+            </label>
+            <label className="oc-font-size-select">
+              <span className="oc-visually-hidden">Line height</span>
+              <select
+                aria-label="Line height"
+                disabled={selectedTextData === undefined}
+                value={typeof selectedTextData?.lineHeight === 'number' ? selectedTextData.lineHeight : 1.2}
+                onChange={(event) => updateTextStyle('lineHeight', Number(event.currentTarget.value))}
+              >
+                {[1, 1.1, 1.2, 1.35, 1.5, 1.75, 2].map((lineHeight) => (
+                  <option value={lineHeight} key={lineHeight}>{lineHeight}×</option>
+                ))}
+              </select>
+            </label>
+          </div>
           <span className="oc-toolbar-divider" />
           <button type="button" onClick={() => executeCommand('undo')} title="Undo (Ctrl+Z)"><Icon src={arrowCounterClockwiseIcon} size={17} /></button>
           <button type="button" onClick={() => executeCommand('redo')} title="Redo (Ctrl+Y)"><Icon src={arrowClockwiseIcon} size={17} /></button>
         </div>
         <div className="oc-compose-bar" role="group" aria-label="Layout and Beauty Pass controls">
-          <label>
-            <span>Layout</span>
-            <select
-              aria-label="Layout mode"
-              value={layoutMode}
-              disabled={derivationBusy}
-              onChange={(event) => setLayoutMode(event.currentTarget.value as LayoutMode)}
-            >
-              <option value="layered">Layered</option>
-              <option value="tree">Tree</option>
-              <option value="radial">Radial</option>
-              <option value="force">Force</option>
-            </select>
-          </label>
-          <button type="button" disabled={derivationBusy} onClick={() => void runAutoLayout()} title="Apply automatic layout">
-            <Icon src={layoutIcon} size={16} />Arrange
-          </button>
-          <button
-            type="button"
-            disabled={!canDistributeSelection}
-            onClick={() => executeCommand('distribute-horizontal')}
-            title="Distribute selected shapes horizontally (Ctrl+Shift+H)"
-          >Distribute H</button>
-          <button
-            type="button"
-            disabled={!canDistributeSelection}
-            onClick={() => executeCommand('distribute-vertical')}
-            title="Distribute selected shapes vertically (Ctrl+Alt+Shift+V)"
-          >Distribute V</button>
-          <button
-            type="button"
-            disabled={!canDistributeSelection}
-            onClick={() => executeCommand('equal-spacing')}
-            title="Equal spacing on dominant axis (Ctrl+Shift+E)"
-          >Equal space</button>
+          <button type="button" popoverTarget="oc-arrange-menu"><Icon src={layoutIcon} size={16} />Arrange</button>
+          <div id="oc-arrange-menu" popover="auto" className="oc-arrange-menu" aria-label="Arrange diagram">
+            <label>
+              <span>Layout</span>
+              <select
+                aria-label="Layout mode"
+                value={layoutMode}
+                disabled={derivationBusy}
+                onChange={(event) => setLayoutMode(event.currentTarget.value as LayoutMode)}
+              >
+                <option value="layered">Layered</option>
+                <option value="tree">Tree</option>
+                <option value="radial">Radial</option>
+                <option value="force">Force</option>
+              </select>
+            </label>
+            <button type="button" disabled={derivationBusy} onClick={() => void runAutoLayout()} title="Apply automatic layout">
+              <Icon src={layoutIcon} size={16} />Apply layout
+            </button>
+            <button
+              type="button"
+              disabled={!canDistributeSelection}
+              onClick={() => executeCommand('distribute-horizontal')}
+              title="Distribute selected shapes horizontally (Ctrl+Shift+H)"
+            >Distribute H</button>
+            <button
+              type="button"
+              disabled={!canDistributeSelection}
+              onClick={() => executeCommand('distribute-vertical')}
+              title="Distribute selected shapes vertically (Ctrl+Alt+Shift+V)"
+            >Distribute V</button>
+            <button
+              type="button"
+              disabled={!canDistributeSelection}
+              onClick={() => executeCommand('equal-spacing')}
+              title="Equal spacing on dominant axis (Ctrl+Shift+E)"
+            >Equal space</button>
+          </div>
           <label>
             <span>Theme</span>
             <select
@@ -6456,7 +6430,7 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
               ))}
             </select>
           </label>
-          <button className="oc-beauty-button" type="button" disabled={derivationBusy} onClick={() => void runBeautyPass()} title="Beauty Pass (Ctrl+Alt+B)">
+          <button className="oc-beauty-button" type="button" disabled={derivationBusy || items.length === 0} onClick={() => void runBeautyPass()} title="Beauty Pass (Ctrl+Alt+B)">
             <Icon src={sparkleIcon} size={16} />{derivationBusy ? 'Working…' : 'Beauty Pass'}
           </button>
         </div>
@@ -6474,6 +6448,11 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
           <strong>Shapes</strong>
           <button type="button" title="Manage shape libraries (M)" onClick={() => setShapeManagerOpen(true)}><Icon src={magnifyingGlassIcon} size={18} /></button>
         </div>
+        {railLibraryId !== 'featured' || railShapeQuery.trim().length > 0 ? (
+          <button type="button" className="oc-library-back" onClick={() => {
+            setRailLibraryId('featured'); setRailShapeQuery(''); quickInsertInputRef.current?.focus();
+          }}>← All libraries</button>
+        ) : null}
         <label className="oc-rail-category">
           <span>Library</span>
           <select
@@ -6481,7 +6460,7 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
             value={railLibraryId}
             onChange={(event) => setRailLibraryId(event.currentTarget.value)}
           >
-            <option value="featured">Featured</option>
+            <option value="featured">All libraries</option>
             <optgroup label="Diagram shapes">
               {SHAPE_LIBRARIES.filter((library) => library.kind === 'diagram').map((library) => (
                 <option value={library.id} key={library.id}>{library.label}</option>
@@ -6537,7 +6516,7 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
           </div>
         </div>
         {railShapeQuery.trim().length > 0 || railLibraryId !== 'featured' ? (
-          <div className="oc-rail-search-results" id="oc-rail-search-results" role="region" aria-label="Quick insert results" aria-live="polite">
+          <div key={railLibraryId} className="oc-rail-search-results" id="oc-rail-search-results" role="region" aria-label="Quick insert results" aria-live="polite">
             {railShapeResults.map((result) => {
               const kind = catalogResultKind(result);
               return (
@@ -6580,7 +6559,7 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
             >Browse full catalog <span>↗</span></button>
           </div>
         ) : (
-        <div className="oc-shape-scroll">
+        <div className="oc-shape-scroll oc-library-overview">
           {favoriteShapeResults.length > 0 ? (
             <section className="oc-shape-library is-pinned" aria-label="Favorite shapes">
               <div className="oc-library-heading"><strong>Favorites</strong><span>{favoriteShapeResults.length}</span></div>
@@ -6617,27 +6596,45 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
               </div>
             </section>
           ) : null}
-          {SHAPE_PALETTE.map((section) => (
-            <section className="oc-shape-library" key={section.label} aria-label={`${section.label} shapes`}>
-              <div className="oc-library-heading"><strong>{section.label}</strong><span>{section.items.length}</span></div>
+          <section className="oc-shape-library" aria-label="Drawing tools">
+            <div className="oc-library-heading"><strong>Drawing tools</strong></div>
+            <div className="oc-shape-list">
+              {DRAWING_TOOLS.map((item) => (
+                <button type="button" key={item.label} draggable
+                  onDragStart={(event) => {
+                    setDraggedShape(item); event.dataTransfer.effectAllowed = 'copy';
+                    event.dataTransfer.setData('application/x-openchart-shape', item.label);
+                  }}
+                  onDragEnd={() => setDraggedShape(null)}
+                  onClick={() => addNode(item)} aria-label={`Add ${item.label}`}>
+                  <Icon src={item.icon} size={23} /><span className="oc-shape-name">{item.label}</span>
+                </button>
+              ))}
+            </div>
+          </section>
+          {overviewLibraries.map((library) => (
+            <section className="oc-shape-library" key={library.id} aria-label={`${library.label} library preview`}>
+              <div className="oc-library-heading">
+                <strong>{library.label}</strong>
+                <span>{library.count.toLocaleString('en-US')}</span>
+                <button type="button" className="oc-library-expand" aria-label={`Browse ${library.label}`} title={`View all ${library.label}`} onClick={() => {
+                  setRailLibraryId(library.id); setRailShapeQuery(''); quickInsertInputRef.current?.focus();
+                }}><Icon src={plusIcon} size={14} /></button>
+              </div>
               <div className="oc-shape-list">
-                {section.items.map((item) => (
-                  <button
-                    type="button"
-                    key={`${section.label}-${item.label}`}
-                    draggable
+                {library.previews.map((result) => (
+                  <button type="button" key={result.entry.id} draggable
                     onDragStart={(event) => {
-                      setDraggedShape(item);
+                      setDraggedShape(shapePaletteItem(result));
                       event.dataTransfer.effectAllowed = 'copy';
-                      event.dataTransfer.setData('application/x-openchart-shape', item.shape?.entryId ?? item.label);
+                      event.dataTransfer.setData('application/x-openchart-shape', `${result.libraryId}:${result.entry.id}`);
                     }}
                     onDragEnd={() => setDraggedShape(null)}
-                    onClick={() => addNode(item)}
-                    title={`Add ${item.label}`}
-                    aria-label={`Add ${item.label}`}
-                    data-shape-entry={item.shape?.entryId}
-                  >
-                    <Icon src={item.icon} size={23} />
+                    onClick={() => addNode(shapePaletteItem(result))}
+                    title={`Add ${result.entry.name}`} aria-label={`Add ${library.label}: ${result.entry.name}`}
+                    data-shape-entry={result.entry.id}>
+                    <CatalogShapePreview result={result} resolveShape={resolveCatalogShape} />
+                    <span className="oc-shape-name">{result.entry.name}</span>
                   </button>
                 ))}
               </div>
@@ -6652,6 +6649,19 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
       </aside>
 
       <section className="oc-workspace">
+        {items.length === 0 ? (
+          <div className="oc-empty-canvas">
+            <Icon src={flowArrowIcon} size={32} />
+            <h1>Make your system clear.</h1>
+            <p>Start with an editable diagram, or build one shape at a time.</p>
+            <div className="oc-empty-actions">
+              <button type="button" className="is-primary" onClick={() => setTemplateOpen(true)}>Start from template</button>
+              <button type="button" onClick={() => executeCommand('open-document')}>Open diagram</button>
+              <button type="button" onClick={() => quickInsertInputRef.current?.focus()}>Add your first shape</button>
+            </div>
+            <small><kbd>Ctrl</kbd> + <kbd>Space</kbd> to find a shape · Drag from the library to place it</small>
+          </div>
+        ) : null}
         <CanvasStage
           document={document}
           scene={scene}
@@ -7261,7 +7271,8 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
         </div>
         <div className="oc-zoom-controls">
           <button type="button" onClick={() => executeCommand('zoom-out')} aria-label="Zoom out"><Icon src={minusIcon} size={14} /></button>
-          <button type="button" onClick={() => executeCommand('zoom-reset')}>{Math.round(camera.zoom * 100)}%</button>
+          <span aria-label="Zoom level">{Math.round(camera.zoom * 100)}%</span>
+          <button type="button" onClick={() => executeCommand('zoom-reset')} title="Fit diagram (Ctrl+0)">Fit</button>
           <button type="button" onClick={() => executeCommand('zoom-in')} aria-label="Zoom in"><Icon src={plusIcon} size={14} /></button>
         </div>
       </footer>
@@ -7349,6 +7360,8 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
                   <option value="svg">SVG · vector</option>
                   <option value="png">PNG · lossless</option>
                   <option value="jpeg">JPEG · compact</option>
+                  <option value="pdf">PDF · vector</option>
+                  <option value="pptx">PowerPoint · vector slide</option>
                   <option value="d2">D2 · editable text projection</option>
                   <option value="mermaid">Mermaid · flowchart text projection</option>
                 </select>
@@ -7369,7 +7382,7 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
                 </select>
               </label>
               <p className="oc-modal-note">
-                D2 and Mermaid export the active page and report known projection losses. Tagged PDF and vector PowerPoint remain available through the local Windows CLI.
+                D2 and Mermaid export the active page and report known projection losses. PDF and PowerPoint export the active page. PowerPoint contains vector artwork with a PNG fallback.
               </p>
             </div>
             <div className="oc-modal-actions">
@@ -7448,6 +7461,40 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
         </div>
       ) : null}
 
+      {beautyOpen ? (
+        <div className="oc-command-backdrop" role="presentation">
+          <section className="oc-beauty-dialog" role="dialog" aria-modal="true" aria-labelledby="oc-beauty-title">
+            <div className="oc-command-header">
+              <div><span>REVIEW CHANGES</span><h2 id="oc-beauty-title">Beauty Pass</h2></div>
+              <button type="button" autoFocus onClick={closeBeautyPreview} aria-label="Cancel Beauty Pass">Cancel</button>
+            </div>
+            <div className="oc-beauty-options">
+              <div role="group" aria-label="Beauty Pass scope">
+                <button type="button" aria-pressed={beautyScope === 'page'} disabled={derivationBusy} onClick={() => void runBeautyPass('page')}>Entire page</button>
+                <button type="button" aria-pressed={beautyScope === 'selection'} disabled={derivationBusy || selectedNodeIds.length === 0} onClick={() => void runBeautyPass('selection')}>Selected shapes ({selectedNodeIds.length})</button>
+              </div>
+              <span>Manually positioned shapes stay in place.</span>
+            </div>
+            {beautyPreview !== null ? <>
+              <div className="oc-beauty-comparison" role="group" aria-label="Compare Beauty Pass">
+                <button type="button" aria-pressed={beautyComparison === 'before'} onClick={() => setBeautyComparison('before')}>Before</button>
+                <button type="button" aria-pressed={beautyComparison === 'after'} onClick={() => setBeautyComparison('after')}>After</button>
+              </div>
+              <SceneThumbnail scene={beautyPreview[beautyComparison]} label={`${beautyComparison === 'before' ? 'Before' : 'After'} Beauty Pass`} />
+              <p className="oc-beauty-summary">{beautyPreview.plan.operations.length === 0 ? 'Already tidy. No changes needed.' :
+                beautyPreview.plan.steps.filter((step) => step.operationCount > 0).map((step) => step.label).join(' · ')}</p>
+            </> : <p className="oc-beauty-loading" role="status">{derivationBusy ? 'Preparing your preview…' : 'Generate a preview to compare changes.'}</p>}
+            {beautyError || (beautyPreview !== null && beautyPreview.source !== document) ?
+              <p className="oc-beauty-error" role="alert">{beautyError || 'The diagram changed. Generate a new preview before applying.'}</p> : null}
+            <div className="oc-modal-actions">
+              <span>Nothing changes until you apply. One undo restores the original.</span>
+              <button type="button" disabled={derivationBusy} onClick={() => void runBeautyPass(beautyScope)}>Refresh preview</button>
+              <button type="button" className="is-primary" disabled={derivationBusy || beautyPreview === null || beautyPreview.source !== document || beautyPreview.plan.operations.length === 0} onClick={applyBeautyPreview}>Apply changes</button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
       {templateOpen ? (
         <div className="oc-command-backdrop" role="presentation" onPointerDown={(event) => {
           if (event.target === event.currentTarget) {
@@ -7460,10 +7507,8 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
               <button type="button" onClick={() => setTemplateOpen(false)} aria-label="Close template chooser">Esc</button>
             </div>
             <p>Start blank or replace the active page with editable professional starter content. One undo restores the previous page.</p>
-            <div className="oc-template-section-title">Blank</div>
-            <div className="oc-template-grid">
+            <div className="oc-template-grid oc-blank-template">
               <button type="button" autoFocus onClick={() => void chooseTemplate('blank')}>
-                <span aria-hidden="true">□</span>
                 <strong>Blank canvas</strong>
                 <small>Clear the active page in one undoable action.</small>
               </button>
@@ -7479,6 +7524,10 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
                   data-template-id={template.id}
                   onClick={() => void chooseTemplate(template.id)}
                 >
+                  {activePage !== undefined && activeLayerId !== undefined ? (
+                    <StarterThumbnail document={document} template={template} templates={starterTemplateModule}
+                      pageId={activePage.id} layerId={activeLayerId} />
+                  ) : null}
                   <span className="oc-template-kind">{template.section}</span>
                   <strong>{template.name}</strong>
                   <small>{template.description}</small>
@@ -7663,6 +7712,8 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
               />
             </label>
             <div className="oc-link-actions">
+              <button type="button" disabled={safeHttpUrl(linkEditor.value) === undefined}
+                onClick={() => { void openExternalLink(linkEditor.value).catch((error: unknown) => setStatus(String(error))); }}>Open link</button>
               <button type="button" onClick={() => setLinkEditor(null)}>Cancel</button>
               <button type="submit">Apply link</button>
             </div>

@@ -60,7 +60,7 @@ describe('paintSceneToCanvas', () => {
     const scene = buildSceneDescription(validation.document);
     const full: PaintRecording = { calls: [], strokeWidths: [] };
     const compact: PaintRecording = { calls: [], strokeWidths: [] };
-    const chrome: PaintRecording = { calls: [], strokeWidths: [] };
+    const overview: PaintRecording = { calls: [], strokeWidths: [] };
     const minimal: PaintRecording = { calls: [], strokeWidths: [] };
     const background: PaintRecording = { calls: [], strokeWidths: [] };
     const main: PaintRecording = { calls: [], strokeWidths: [] };
@@ -68,7 +68,7 @@ describe('paintSceneToCanvas', () => {
 
     paintSceneToCanvas(scene, recordingContext(full), { zoom: 1 });
     paintSceneToCanvas(scene, recordingContext(compact), { zoom: 0.5 });
-    paintSceneToCanvas(scene, recordingContext(chrome), { zoom: 0.25 });
+    paintSceneToCanvas(scene, recordingContext(overview), { zoom: 0.25 });
     paintSceneToCanvas(scene, recordingContext(minimal), { zoom: 0.1 });
     paintSceneLayerToCanvas(scene, 'background', recordingContext(background));
     paintSceneLayerToCanvas(scene, 'main', recordingContext(main));
@@ -81,7 +81,8 @@ describe('paintSceneToCanvas', () => {
     expect(fullTextCount).toBeGreaterThan(20);
     expect(compactTextCount).toBeGreaterThan(0);
     expect(compactTextCount).toBeLessThan(fullTextCount);
-    expect(chrome.calls).not.toContain('fillText');
+    expect(overview.calls).toContain('fillText');
+    expect(overview.calls.filter((call) => call === 'fillText').length).toBeLessThan(compactTextCount);
     expect(minimal.calls).not.toContain('fillText');
     expect(minimal.strokeWidths).toContain(10);
     expect(background.calls).not.toContain('arc');

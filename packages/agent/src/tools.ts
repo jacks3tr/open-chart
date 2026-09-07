@@ -1171,14 +1171,14 @@ export class OpenChartToolKernel {
     const operations: readonly Operation[] =
       document.layout.engine === layout.engine &&
       document.layout.derivedVersion === layout.derivedVersion &&
-      canonicalJson(document.layout.derived) === canonicalJson(layout.frames)
+      canonicalJson(document.layout.derived) === canonicalJson({ ...document.layout.derived, ...layout.frames })
         ? []
         : [
             {
               op: 'set_derived_layout',
               engine: layout.engine,
               derivedVersion: layout.derivedVersion,
-              frames: layout.frames,
+              frames: { ...document.layout.derived, ...layout.frames },
             },
           ];
     return this.#finishDerived(input, operations, 'layout', idempotency);

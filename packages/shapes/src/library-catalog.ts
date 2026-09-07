@@ -15,6 +15,14 @@ import { validateShapeDefinition } from './schema.js';
 import { SHAPE_DEFINITION_VERSION, type ShapeDefinition } from './types.js';
 
 export function createShapeLibraryCatalog(catalogLibraries: readonly ShapeLibrary[]) {
+  const aliases = catalogLibraries.flatMap((library) => library.entries).filter((entry) => entry.aliasOf !== undefined);
+  const visibleLibraries = catalogLibraries.map((library) => ({ ...library,
+    entries: library.entries.filter((entry) => entry.aliasOf === undefined).map((entry) => ({ ...entry,
+      tags: [...new Set([...entry.tags, ...aliases.filter((alias) => alias.aliasOf === entry.id)
+        .flatMap((alias) => [alias.id, alias.name.toLowerCase(), ...alias.tags])])],
+    })),
+  }));
+
   function colorIsValid(value: string): boolean {
     return /^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(value);
   }
@@ -28,7 +36,7 @@ export function createShapeLibraryCatalog(catalogLibraries: readonly ShapeLibrar
   }
 
   function listShapeLibraries(): readonly ShapeLibrary[] {
-    return catalogLibraries;
+    return visibleLibraries;
   }
 
   function getShapeLibrary(id: string): ShapeLibrary | undefined {
@@ -159,7 +167,7 @@ export function createShapeLibraryCatalog(catalogLibraries: readonly ShapeLibrar
     const limit = Math.max(0, Math.min(500, Math.trunc(options.limit ?? 50)));
     const ranked: Array<ShapeLibrarySearchResult & { readonly score: number; readonly order: number }> = [];
     let order = 0;
-    for (const library of catalogLibraries) {
+    for (const library of visibleLibraries) {
       if (requestedLibraries !== undefined && !requestedLibraries.has(library.id)) {
         continue;
       }

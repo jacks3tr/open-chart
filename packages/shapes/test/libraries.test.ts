@@ -34,9 +34,9 @@ describe('shipped shape libraries', () => {
       'phosphor',
     ]);
     expect(libraries.map((library) => library.entries.length)).toEqual([
-      26, 10, 36, 42, 42, 22, 20, 31, 38, 6, 6, 50, 50, 50, 3_457, 1_512,
+      21, 4, 33, 40, 40, 22, 20, 27, 28, 6, 6, 50, 50, 50, 3_457, 1_512,
     ]);
-    expect(libraries.slice(0, 14).reduce((total, library) => total + library.entries.length, 0)).toBe(429);
+    expect(libraries.slice(0, 14).reduce((total, library) => total + library.entries.length, 0)).toBe(397);
     expect(validateShapeLibraries()).toEqual([]);
 
     const postgresql = getShapeLibraryEntry('simple-icons', 'simple.postgresql');
@@ -160,7 +160,7 @@ describe('shipped shape libraries', () => {
       ['uml', 'uml.lifeline', 'path'],
       ['erd', 'erd.entity', 'rect'],
       ['erd', 'erd.composite-attribute', 'ellipse'],
-      ['erd', 'erd.one-many', 'polygon'],
+      ['erd', 'erd.one-many', 'path'],
       ['network', 'network.vpc', 'rect'],
       ['network', 'network.rack', 'rect'],
       ['architecture', 'architecture.region', 'rect'],
@@ -201,8 +201,8 @@ describe('shipped shape libraries', () => {
       'flowchart.predefined-process',
       'flowchart.stored-data',
       'flowchart.internal-storage',
-      'flowchart.sequential-data',
-      'flowchart.direct-data',
+      'flowchart.sequential-access-storage',
+      'flowchart.direct-access-storage',
       'flowchart.display',
       'flowchart.database',
       'flowchart.delay',
@@ -240,6 +240,19 @@ describe('shipped shape libraries', () => {
     });
   });
 
+  it('hides historical duplicates from discovery while keeping saved references resolvable', () => {
+    const results = searchShapeLibraries('api gateway', { limit: 100 });
+    expect(results.filter(({ entry }) => entry.id === 'integration.api-gateway')).toHaveLength(1);
+    expect(results.some(({ entry }) => entry.aliasOf !== undefined)).toBe(false);
+    expect(results.some(({ entry }) => entry.id === 'architecture.api-gateway')).toBe(false);
+    expect(resolveLibraryShape('architecture', 'architecture.api-gateway').ok).toBe(true);
+    expect(searchShapeLibraries('architecture.api-gateway')[0]?.entry.id).toBe('integration.api-gateway');
+    const exclusive = resolveLibraryShape('bpmn', 'bpmn.exclusive-gateway');
+    const parallel = resolveLibraryShape('bpmn', 'bpmn.parallel-gateway');
+    if (!exclusive.ok || !parallel.ok) throw new Error('Missing gateway definitions');
+    expect(exclusive.definition.geometry).not.toEqual(parallel.definition.geometry);
+  });
+
   it('keeps technical glyph labels below their geometry', () => {
     for (const [libraryId, entryId] of [
       ['integration', 'integration.queue'],
@@ -255,13 +268,15 @@ describe('shipped shape libraries', () => {
       if (!evaluated.ok) {
         continue;
       }
-      const body = evaluated.shape.geometry.find((geometry) => geometry.id === 'body');
       const label = evaluated.shape.textAreas.find((textArea) => textArea.id === 'label');
-      expect(body !== undefined && 'frame' in body).toBe(true);
-      if (body === undefined || !('frame' in body) || label === undefined) {
-        continue;
-      }
-      expect(label.frame.y).toBeGreaterThan(body.frame.y + body.frame.height);
+      const points = evaluated.shape.geometry.flatMap((geometry) => {
+        if ('frame' in geometry) return [geometry.frame.y + geometry.frame.height];
+        if (geometry.type === 'path') return geometry.commands.flatMap((command) => 'to' in command ? [command.to.y] : []);
+        if (geometry.type === 'polygon') return geometry.points.map((point) => point.y);
+        return [];
+      });
+      expect(label).toBeDefined();
+      expect(label!.frame.y).toBeGreaterThan(Math.max(...points));
     }
   });
 });

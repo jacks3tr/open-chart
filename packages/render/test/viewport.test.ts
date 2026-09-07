@@ -76,7 +76,7 @@ describe('SceneViewportRenderer', () => {
     renderer.paint(recordingContext(lowDetailCalls), {
       x: 0,
       y: 0,
-      zoom: 0.25,
+      zoom: 0.2,
       viewportWidth: 430,
       viewportHeight: 420,
     });

@@ -125,12 +125,43 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             read_document,
             write_document,
+            write_export,
+            open_external_link,
             mcp_host::start_mcp_host,
             mcp_host::complete_mcp_request,
             mcp_host::stop_mcp_host
         ])
         .run(tauri::generate_context!())
         .expect("OpenChart desktop host failed");
+}
+
+#[tauri::command]
+fn open_external_link(url: String) -> Result<(), String> {
+    let parsed = tauri::Url::parse(&url).map_err(|_| "Invalid link".to_string())?;
+    if !matches!(parsed.scheme(), "http" | "https") || parsed.host_str().is_none() {
+        return Err("Links must use HTTP or HTTPS".to_string());
+    }
+    use std::os::windows::process::CommandExt;
+    std::process::Command::new("rundll32.exe")
+        .arg("url.dll,FileProtocolHandler")
+        .arg(parsed.as_str())
+        .creation_flags(0x08000000)
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| format!("Link could not be opened: {error}"))
+}
+
+#[tauri::command]
+fn write_export(path: String, bytes: Vec<u8>) -> Result<(), String> {
+    let path = PathBuf::from(path);
+    let extension = path.extension().and_then(|value| value.to_str()).unwrap_or("").to_ascii_lowercase();
+    if !path.is_absolute() || !matches!(extension.as_str(), "svg" | "png" | "jpg" | "jpeg" | "pdf" | "pptx" | "d2" | "mmd") {
+        return Err("Choose an absolute path with a supported export extension".to_string());
+    }
+    if bytes.is_empty() || bytes.len() > 64 * 1024 * 1024 {
+        return Err("Export must contain data and fit within 64 MiB".to_string());
+    }
+    atomic_write(&path, &bytes).map_err(|error| format!("Export could not be saved: {error}"))
 }
 
 #[cfg(test)]
@@ -152,6 +183,10 @@ mod tests {
 
         assert_eq!(fs::read(&document).expect("read document"), b"after");
         assert_eq!(fs::read_dir(&directory).expect("list directory").count(), 1);
+        let export = directory.join("diagram.png");
+        let bytes = vec![137, 80, 78, 71, 0, 255];
+        write_export(export.to_string_lossy().into_owned(), bytes.clone()).expect("save binary export");
+        assert_eq!(fs::read(export).expect("read export"), bytes);
         fs::remove_dir_all(directory).expect("remove test directory");
     }
 }

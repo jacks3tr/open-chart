@@ -4,10 +4,28 @@ import northstarInput from '../../../examples/northstar-integration.openchart.js
 import { validateDocument } from '@openchart/ir';
 
 import { OpenChartEditor } from '../src/index.js';
-import { canvasDropWorldPoint } from '../src/openchart-editor.js';
+import { canvasDropWorldPoint, resolveFrames } from '../src/openchart-editor.js';
+import { buildSceneDescription } from '@openchart/scene';
+import { renderSceneToSvg } from '@openchart/serialize';
 import { parseDesktopDocument } from '../src/desktop-file.js';
 
 describe('OpenChart application shell', () => {
+  it('selects and exports derived positions outside the artboard with usable links', () => {
+    const document = parseDesktopDocument(JSON.stringify(northstarInput));
+    const node = Object.values(document.nodes)[0]!;
+    document.layout.overrides[node.id] = { x: 5, y: 5, width: 120, height: 80, pinned: false };
+    const frame = { x: -900, y: -600, width: 240, height: 150 };
+    document.layout.derived = { [node.id]: frame };
+    node.data.link = 'https://example.com/diagram?a=1&b=2';
+    expect(resolveFrames(document, node.pageId)[node.id]).toEqual(frame);
+    const scene = buildSceneDescription(document, { pageId: node.pageId });
+    expect(scene.bounds.x).toBeLessThan(frame.x);
+    expect(scene.bounds.y).toBeLessThan(frame.y);
+    expect(renderSceneToSvg(scene)).toContain('<a href="https://example.com/diagram?a=1&amp;b=2"');
+    node.data.link = 'javascript:alert(1)';
+    expect(renderSceneToSvg(buildSceneDescription(document))).not.toContain('<a href=');
+  });
+
   it('renders the canonical document into an accessible drafting workspace', () => {
     const validation = validateDocument(northstarInput);
     expect(validation.ok).toBe(true);
@@ -38,16 +56,12 @@ describe('OpenChart application shell', () => {
     expect(markup).toContain('<span><i class="is-icon"></i>Icons</span>');
     expect(markup).toContain('data-shape-entry="flowchart.decision"');
     expect(markup).toContain('draggable="true"');
-    expect(markup).toContain('aria-label="Essentials shapes"');
-    expect(markup).toContain('aria-label="Integration shapes"');
-    expect(markup).toContain('aria-label="Architecture shapes"');
-    expect(markup).toContain('aria-label="Cloud shapes"');
-    expect(markup).toContain('aria-label="BPMN shapes"');
-    expect(markup).toContain('aria-label="UML shapes"');
-    expect(markup).toContain('aria-label="ERD shapes"');
-    expect(markup).toContain('aria-label="Network shapes"');
-    expect(markup).not.toContain('aria-label="Basic shapes shapes"');
-    expect(markup).not.toContain('aria-label="Containers shapes"');
+    expect(markup).toContain('aria-label="Drawing tools"');
+    expect(markup).toContain('<option value="featured" selected="">All libraries</option>');
+    expect(markup).toContain('aria-label="Network library preview"');
+    expect(markup).toContain('aria-label="Browse Network"');
+    expect(markup).toContain('aria-label="Browse AWS-style services"');
+    expect(markup).toContain('aria-label="Browse Simple Icons"');
     const paletteEntries = [...markup.matchAll(/data-shape-entry="([^"]+)"/g)]
       .map((match) => match[1]);
     expect(new Set(paletteEntries).size).toBe(paletteEntries.length);

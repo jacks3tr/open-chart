@@ -1,4 +1,5 @@
 import type { Edge, Node, OpenChartDocument, Port } from '@openchart/ir';
+import { resolveLibraryShape } from '@openchart/shapes/libraries-core';
 import type { Operation, OperationEnvelope } from '@openchart/ops';
 
 export type StarterTemplateId =
@@ -11,7 +12,10 @@ export type StarterTemplateId =
 export interface StarterTemplateNodeSpec {
   readonly key: string;
   readonly label: string;
-  readonly kind: 'service' | 'control' | 'database' | 'system';
+  readonly kind: 'service' | 'control' | 'database' | 'system' | 'text';
+  readonly parent?: string;
+  readonly container?: boolean;
+  readonly data?: Node['data'];
   readonly libraryId: string;
   readonly entryId: string;
   readonly x: number;
@@ -25,6 +29,7 @@ export interface StarterTemplateEdgeSpec {
   readonly to: string;
   readonly label?: string;
   readonly semantic?: string;
+  readonly routing?: Edge['routing'];
   readonly fromSide?: Port['side'];
   readonly toSide?: Port['side'];
   readonly waypoints?: readonly { readonly x: number; readonly y: number }[];
@@ -45,146 +50,171 @@ export interface StarterTemplateTransaction {
   readonly edgeIds: readonly string[];
 }
 
+// Coordinates are shared by the canvas, gallery, and exports. Keep room for the footer.
+function shape(key: string, label: string, entryId: string, x: number, y: number,
+  width = 180, height = 120, extra: Partial<StarterTemplateNodeSpec> = {}): StarterTemplateNodeSpec {
+  return { key, label, kind: 'service', libraryId: entryId.split('.')[0]!, entryId,
+    x, y, width, height, ...extra };
+}
+
+function text(key: string, label: string, x: number, y: number, width: number,
+  fontSize = 15, data: Node['data'] = {}): StarterTemplateNodeSpec {
+  return shape(key, label, 'basic.text', x, y, width, fontSize + 16,
+    { kind: 'text', data: { fontSize, fontWeight: 500, textAlign: 'left', textColor: '#526277', ...data } });
+}
+
+function heading(section: string, title: string, subtitle: string): readonly StarterTemplateNodeSpec[] {
+  return [
+    text('eyebrow', section.toUpperCase(), 64, 28, 1200, 12, { fontWeight: 700, textColor: '#2563EB' }),
+    text('title', title, 64, 67, 1280, 34, { role: 'page-title', fontWeight: 700, textColor: '#15283F' }),
+    text('subtitle', subtitle, 64, 124, 1280),
+  ];
+}
+
+function zone(key: string, label: string, entryId: string, x: number, y: number,
+  width: number, height: number): StarterTemplateNodeSpec {
+  return shape(key, label, entryId, x, y, width, height, { kind: 'system', container: true });
+}
+
 const FLOWCHART_STARTER: StarterTemplateDefinition = {
-  id: 'flowchart',
-  name: 'Approval flowchart',
-  section: 'Process',
-  description: 'A complete request-and-approval flow with decision branches, document output, and an off-page handoff.',
+  id: 'flowchart', name: 'Approval flowchart', section: 'Process',
+  description: 'A policy approval process with a clear success path, clarification loop, and completed outcome.',
   nodes: [
-    { key: 'start', label: 'Request received', kind: 'control', libraryId: 'flowchart', entryId: 'flowchart.terminator', x: 80, y: 90, width: 170, height: 78 },
-    { key: 'validate', label: 'Validate request', kind: 'service', libraryId: 'flowchart', entryId: 'flowchart.process', x: 320, y: 78, width: 190, height: 100 },
-    { key: 'decision', label: 'Meets policy?', kind: 'control', libraryId: 'flowchart', entryId: 'flowchart.decision', x: 590, y: 70, width: 150, height: 120 },
-    { key: 'approve', label: 'Approve request', kind: 'service', libraryId: 'flowchart', entryId: 'flowchart.process', x: 840, y: 55, width: 190, height: 100 },
-    { key: 'document', label: 'Issue approval', kind: 'service', libraryId: 'flowchart', entryId: 'flowchart.document', x: 1090, y: 50, width: 190, height: 110 },
-    { key: 'manual', label: 'Request clarification', kind: 'service', libraryId: 'flowchart', entryId: 'flowchart.manual-input', x: 590, y: 270, width: 190, height: 105 },
-    { key: 'rework', label: 'Update request', kind: 'service', libraryId: 'flowchart', entryId: 'flowchart.predefined-process', x: 320, y: 278, width: 190, height: 100 },
-    { key: 'handoff', label: 'Continue on next page', kind: 'control', libraryId: 'flowchart', entryId: 'flowchart.off-page-connector', x: 1095, y: 270, width: 170, height: 105 },
+    ...heading('01 / Business process', 'Request approval', 'Validate once. Resolve exceptions. Record the decision and close the request.'),
+    shape('start', 'Request received', 'flowchart.terminator', 72, 290, 180, 90, { kind: 'control' }),
+    shape('validate', 'Validate request', 'flowchart.process', 332, 280, 190, 110),
+    shape('decision', 'Meets policy?', 'flowchart.decision', 602, 250, 210, 170, { kind: 'control' }),
+    shape('approve', 'Approve request', 'flowchart.process', 892, 280, 190, 110),
+    shape('document', 'Issue approval', 'flowchart.document', 1162, 275, 190, 120),
+    shape('manual', 'Clarify request', 'flowchart.manual-input', 612, 555, 190, 110,
+      { data: { borderColor: '#B7791F', fillColor: '#FFFAEB' } }),
+    shape('rework', 'Update request', 'flowchart.predefined-process', 332, 555, 190, 110),
+    shape('handoff', 'Request closed', 'flowchart.terminator', 1162, 565, 190, 90,
+      { kind: 'control', data: { borderColor: '#07856D', fillColor: '#ECFDF5' } }),
   ],
   edges: [
-    { from: 'start', to: 'validate' },
-    { from: 'validate', to: 'decision' },
-    { from: 'decision', to: 'approve', label: 'Yes' },
-    { from: 'approve', to: 'document' },
-    { from: 'document', to: 'handoff', fromSide: 'south', toSide: 'north' },
+    { from: 'start', to: 'validate' }, { from: 'validate', to: 'decision' },
+    { from: 'decision', to: 'approve', label: 'Yes' }, { from: 'approve', to: 'document' },
+    { from: 'document', to: 'handoff', fromSide: 'south', toSide: 'north', label: 'Recorded' },
     { from: 'decision', to: 'manual', label: 'No', fromSide: 'south', toSide: 'north' },
-    { from: 'manual', to: 'rework', fromSide: 'west', toSide: 'east' },
-    { from: 'rework', to: 'validate', fromSide: 'north', toSide: 'south', waypoints: [{ x: 415, y: 220 }] },
+    { from: 'manual', to: 'rework', label: 'Revised input', fromSide: 'west', toSide: 'east' },
+    { from: 'rework', to: 'validate', label: 'Resubmit', fromSide: 'north', toSide: 'south', waypoints: [{ x: 427, y: 475 }] },
   ],
 };
 
 const INTEGRATION_STARTER: StarterTemplateDefinition = {
-  id: 'integration',
-  name: 'Event-driven integration',
-  section: 'Architecture',
-  description: 'API gateway, load balancer, services, cache, queue, worker, database, and external SaaS with labeled orthogonal flows.',
+  id: 'integration', name: 'Event-driven integration', section: 'Architecture',
+  description: 'An order API with durable events, asynchronous fulfillment, and a dead-letter queue for failed jobs.',
   nodes: [
-    { key: 'client', label: 'Web & mobile clients', kind: 'service', libraryId: 'integration', entryId: 'integration.client', x: 60, y: 155, width: 170, height: 115 },
-    { key: 'gateway', label: 'API gateway', kind: 'control', libraryId: 'integration', entryId: 'integration.api-gateway', x: 300, y: 150, width: 170, height: 120 },
-    { key: 'lb', label: 'Load balancer', kind: 'control', libraryId: 'architecture', entryId: 'architecture.load-balancer', x: 540, y: 150, width: 170, height: 120 },
-    { key: 'orders', label: 'Order service', kind: 'service', libraryId: 'integration', entryId: 'integration.service', x: 790, y: 70, width: 190, height: 112 },
-    { key: 'inventory', label: 'Inventory service', kind: 'service', libraryId: 'integration', entryId: 'integration.service', x: 790, y: 245, width: 190, height: 112 },
-    { key: 'cache', label: 'Shared cache', kind: 'database', libraryId: 'integration', entryId: 'integration.cache', x: 1050, y: 40, width: 170, height: 120 },
-    { key: 'queue', label: 'Order events', kind: 'database', libraryId: 'integration', entryId: 'integration.queue', x: 1050, y: 205, width: 180, height: 112 },
-    { key: 'worker', label: 'Fulfillment worker', kind: 'service', libraryId: 'integration', entryId: 'integration.worker', x: 1310, y: 205, width: 190, height: 112 },
-    { key: 'db', label: 'Orders database', kind: 'database', libraryId: 'integration', entryId: 'integration.database', x: 1310, y: 40, width: 180, height: 120 },
-    { key: 'saas', label: 'Shipping SaaS', kind: 'service', libraryId: 'integration', entryId: 'integration.external-saas', x: 1560, y: 205, width: 180, height: 112 },
+    ...heading('02 / Integration architecture', 'Order fulfillment platform', 'Synchronous order capture with durable messaging and independent fulfillment workers.'),
+    zone('api-zone', '01  /  Request & persistence', 'architecture.system-boundary', 72, 195, 1296, 220),
+    zone('async-zone', '02  /  Asynchronous fulfillment', 'architecture.system-boundary', 572, 470, 796, 330),
+    shape('client', 'Web & mobile', 'integration.client', 102, 255, 170, 120, { parent: 'api-zone' }),
+    shape('gateway', 'API gateway', 'integration.api-gateway', 352, 255, 170, 120, { kind: 'control', parent: 'api-zone' }),
+    shape('orders', 'Order service', 'integration.service', 612, 255, 170, 120, { parent: 'api-zone' }),
+    shape('db', 'Orders database', 'integration.database', 1132, 255, 180, 120, { kind: 'database', parent: 'api-zone' }),
+    shape('outbox', 'Outbox relay', 'integration.worker', 872, 255, 170, 120, { parent: 'api-zone' }),
+    shape('queue', 'Order events', 'integration.queue', 612, 535, 170, 120, { kind: 'database', parent: 'async-zone' }),
+    shape('worker', 'Fulfillment worker', 'integration.worker', 872, 535, 170, 120, { parent: 'async-zone' }),
+    shape('saas', 'Shipping partner', 'integration.external-saas', 1132, 535, 180, 120, { parent: 'async-zone' }),
+    shape('dlq', 'Failed jobs', 'integration.queue', 872, 695, 170, 80,
+      { kind: 'database', parent: 'async-zone', data: { borderColor: '#B7791F', fillColor: '#FFFAEB' } }),
+    text('delivery-title', 'DELIVERY CONTRACT', 94, 535, 410, 12, { fontWeight: 700, textColor: '#07856D' }),
+    text('delivery-once', 'At-least-once event delivery', 94, 578, 410),
+    text('delivery-idempotent', 'Idempotent fulfillment by order ID', 94, 614, 410),
+    text('delivery-failures', 'Failed jobs retained for operator review', 94, 650, 410),
   ],
   edges: [
     { from: 'client', to: 'gateway', label: 'HTTPS' },
-    { from: 'gateway', to: 'lb', label: 'authorized' },
-    { from: 'lb', to: 'orders', label: 'orders', toSide: 'west' },
-    { from: 'lb', to: 'inventory', label: 'inventory', toSide: 'west' },
-    { from: 'orders', to: 'cache', label: 'read/write' },
-    { from: 'orders', to: 'db', label: 'transaction', fromSide: 'east', toSide: 'west' },
-    { from: 'orders', to: 'queue', label: 'publish', fromSide: 'south', toSide: 'north' },
-    { from: 'queue', to: 'worker', label: 'consume' },
-    { from: 'worker', to: 'saas', label: 'ship request' },
-    { from: 'inventory', to: 'queue', label: 'stock event' },
+    { from: 'gateway', to: 'orders', label: 'Create order' },
+    { from: 'orders', to: 'db', label: 'Order + outbox / one transaction', fromSide: 'north', toSide: 'north',
+      waypoints: [{ x: 697, y: 180 }, { x: 1222, y: 180 }] },
+    { from: 'db', to: 'outbox', label: 'Committed rows', fromSide: 'west', toSide: 'east' },
+    { from: 'outbox', to: 'queue', label: 'Publish', semantic: 'Event', fromSide: 'south', toSide: 'west',
+      waypoints: [{ x: 957, y: 445 }, { x: 542, y: 445 }, { x: 542, y: 595 }] },
+    { from: 'queue', to: 'worker', label: 'Consume', semantic: 'Event' },
+    { from: 'worker', to: 'saas', label: 'Ship order' },
+    { from: 'worker', to: 'dlq', label: 'Retries exhausted', semantic: 'Exception', fromSide: 'south', toSide: 'north' },
   ],
 };
 
 const CLOUD_STARTER: StarterTemplateDefinition = {
-  id: 'cloud',
-  name: 'Multi-cloud service path',
-  section: 'Cloud',
-  description: 'A recognizable AWS/Azure/GCP service path with edge delivery, compute, messaging, data, and observability.',
+  id: 'cloud', name: 'Resilient AWS application', section: 'Cloud',
+  description: 'Protected ingress, load balancing, ECS across two availability zones, and a managed Multi-AZ database.',
   nodes: [
-    { key: 'aws-edge', label: 'AWS CloudFront', kind: 'system', libraryId: 'aws', entryId: 'aws.cloudfront', x: 80, y: 85, width: 180, height: 112 },
-    { key: 'aws-api', label: 'AWS API Gateway', kind: 'control', libraryId: 'aws', entryId: 'aws.api-gateway', x: 330, y: 80, width: 180, height: 120 },
-    { key: 'aws-compute', label: 'AWS ECS', kind: 'service', libraryId: 'aws', entryId: 'aws.ecs', x: 590, y: 70, width: 190, height: 130 },
-    { key: 'aws-queue', label: 'AWS SQS', kind: 'database', libraryId: 'aws', entryId: 'aws.sqs', x: 860, y: 75, width: 180, height: 112 },
-    { key: 'azure-worker', label: 'Azure Functions', kind: 'service', libraryId: 'azure', entryId: 'azure.functions', x: 1120, y: 70, width: 180, height: 120 },
-    { key: 'azure-cache', label: 'Azure Redis Cache', kind: 'database', libraryId: 'azure', entryId: 'azure.redis-cache', x: 1380, y: 40, width: 180, height: 120 },
-    { key: 'gcp-topic', label: 'GCP Pub/Sub', kind: 'database', libraryId: 'gcp', entryId: 'gcp.pub-sub', x: 1380, y: 220, width: 180, height: 112 },
-    { key: 'gcp-run', label: 'GCP Cloud Run', kind: 'service', libraryId: 'gcp', entryId: 'gcp.cloud-run', x: 1640, y: 210, width: 190, height: 120 },
-    { key: 'gcp-data', label: 'GCP Cloud SQL', kind: 'database', libraryId: 'gcp', entryId: 'gcp.cloud-sql', x: 1900, y: 210, width: 180, height: 120 },
-    { key: 'observe', label: 'Cloud monitoring', kind: 'service', libraryId: 'gcp', entryId: 'gcp.cloud-monitoring', x: 1120, y: 270, width: 180, height: 112 },
+    ...heading('03 / Cloud reference architecture', 'Resilient application on AWS', 'Protected ingress • Two application availability zones • Managed Multi-AZ persistence'),
+    zone('edge-zone', 'Public ingress', 'architecture.edge-zone', 72, 210, 280, 550),
+    zone('az-a', 'Private subnet / AZ A', 'architecture.availability-zone', 682, 210, 286, 250),
+    zone('az-b', 'Private subnet / AZ B', 'architecture.availability-zone', 682, 510, 286, 250),
+    zone('data-zone', 'Managed data tier', 'architecture.private-subnet', 1058, 210, 310, 550),
+    shape('cdn', 'CloudFront', 'aws.cloudfront', 122, 285, 180, 130, { parent: 'edge-zone' }),
+    shape('waf', 'WAF policy', 'aws.waf', 122, 570, 180, 130, { kind: 'control', parent: 'edge-zone' }),
+    shape('lb', 'Application LB', 'aws.elastic-load-balancing', 432, 425, 180, 120, { kind: 'control' }),
+    shape('ecs-a', 'ECS service / A', 'aws.ecs', 732, 285, 180, 130, { parent: 'az-a' }),
+    shape('ecs-b', 'ECS service / B', 'aws.ecs', 732, 585, 180, 130, { parent: 'az-b' }),
+    shape('rds', 'RDS / Multi-AZ', 'aws.rds', 1123, 425, 180, 130, { kind: 'database', parent: 'data-zone' }),
+    text('data-note', 'Automatic failover', 1090, 637, 250, 14),
   ],
   edges: [
-    { from: 'aws-edge', to: 'aws-api', label: 'HTTPS' },
-    { from: 'aws-api', to: 'aws-compute' },
-    { from: 'aws-compute', to: 'aws-queue', label: 'events' },
-    { from: 'aws-queue', to: 'azure-worker', label: 'bridge' },
-    { from: 'azure-worker', to: 'azure-cache', label: 'cache' },
-    { from: 'azure-worker', to: 'gcp-topic', label: 'publish', fromSide: 'south', toSide: 'west' },
-    { from: 'gcp-topic', to: 'gcp-run', label: 'subscription' },
-    { from: 'gcp-run', to: 'gcp-data', label: 'persist' },
-    { from: 'aws-compute', to: 'observe', label: 'metrics', fromSide: 'south', toSide: 'west' },
-    { from: 'gcp-run', to: 'observe', label: 'telemetry', fromSide: 'south', toSide: 'east' },
+    { from: 'waf', to: 'cdn', label: 'Web ACL', semantic: 'Policy', fromSide: 'north', toSide: 'south',
+      routing: { mode: 'orthogonal', lineStyle: 'dotted', endMarker: 'none' } },
+    { from: 'cdn', to: 'lb', label: 'HTTPS', waypoints: [{ x: 390, y: 350 }, { x: 390, y: 485 }] },
+    { from: 'lb', to: 'ecs-a', label: 'Healthy target', fromSide: 'north', toSide: 'west', waypoints: [{ x: 522, y: 350 }] },
+    { from: 'lb', to: 'ecs-b', label: 'Healthy target', fromSide: 'south', toSide: 'west', waypoints: [{ x: 522, y: 650 }] },
+    { from: 'ecs-a', to: 'rds', label: 'SQL / TLS', toSide: 'north', waypoints: [{ x: 1213, y: 350 }] },
+    { from: 'ecs-b', to: 'rds', label: 'SQL / TLS', toSide: 'south', waypoints: [{ x: 1010, y: 650 }, { x: 1010, y: 600 }, { x: 1213, y: 600 }] },
   ],
 };
 
 const UML_ERD_STARTER: StarterTemplateDefinition = {
-  id: 'uml-erd',
-  name: 'Domain model + ERD',
-  section: 'Software design',
-  description: 'A class-oriented domain model paired with core entities and explicit relationship conventions.',
+  id: 'uml-erd', name: 'Order domain model', section: 'Software design',
+  description: 'Service dependencies and a populated order schema with explicit customer, order, and line-item cardinalities.',
   nodes: [
-    { key: 'service', label: 'OrderService', kind: 'service', libraryId: 'uml', entryId: 'uml.class', x: 100, y: 70, width: 220, height: 150 },
-    { key: 'repo', label: 'OrderRepository', kind: 'service', libraryId: 'uml', entryId: 'uml.interface', x: 400, y: 70, width: 220, height: 130 },
-    { key: 'package', label: 'fulfillment.domain', kind: 'system', libraryId: 'uml', entryId: 'uml.package', x: 700, y: 60, width: 240, height: 150 },
-    { key: 'note', label: 'Transactional boundary', kind: 'service', libraryId: 'uml', entryId: 'uml.comment', x: 100, y: 300, width: 220, height: 120 },
-    { key: 'customer', label: 'Customer', kind: 'database', libraryId: 'erd', entryId: 'erd.entity', x: 520, y: 310, width: 220, height: 150 },
-    { key: 'places', label: 'places', kind: 'control', libraryId: 'erd', entryId: 'erd.relationship', x: 800, y: 335, width: 130, height: 100 },
-    { key: 'order', label: 'Order', kind: 'database', libraryId: 'erd', entryId: 'erd.entity', x: 990, y: 310, width: 220, height: 150 },
-    { key: 'items', label: 'contains', kind: 'control', libraryId: 'erd', entryId: 'erd.relationship', x: 1270, y: 335, width: 130, height: 100 },
-    { key: 'line', label: 'OrderLine', kind: 'database', libraryId: 'erd', entryId: 'erd.weak-entity', x: 1460, y: 310, width: 220, height: 150 },
+    ...heading('04 / Software design', 'Order domain & persistence', 'Application dependencies above; entity relationships and key fields below.'),
+    shape('api', 'Checkout API', 'uml.component', 82, 235, 230, 145),
+    shape('service', 'Order service', 'uml.component', 582, 235, 230, 145),
+    shape('repo', 'Order repository', 'uml.component', 1102, 235, 230, 145),
+    text('schema-label', 'PERSISTENCE MODEL', 64, 445, 400, 12, { fontWeight: 700 }),
+    shape('customer', 'Customer\nPK  customer_id\nemail\ncreated_at', 'erd.entity', 82, 555, 230, 190, { kind: 'database' }),
+    shape('places', 'places', 'erd.relationship', 382, 595, 120, 110, { kind: 'control' }),
+    shape('order', 'Order\nPK  order_id\nFK  customer_id\nstatus', 'erd.entity', 582, 555, 230, 190, { kind: 'database' }),
+    shape('items', 'contains', 'erd.identifying-relationship', 892, 595, 130, 110, { kind: 'control' }),
+    shape('line', 'OrderLine\nPK  order_id, line_no\nSKU, quantity\nunit_price', 'erd.weak-entity', 1102, 555, 230, 190, { kind: 'database' }),
   ],
   edges: [
-    { from: 'service', to: 'repo', label: 'uses', semantic: 'Dependency' },
-    { from: 'repo', to: 'package', label: 'implemented by', semantic: 'Realization' },
-    { from: 'note', to: 'service', label: 'documents', fromSide: 'north', toSide: 'south', semantic: 'Note' },
-    { from: 'customer', to: 'places', label: '1' },
-    { from: 'places', to: 'order', label: '0..*' },
-    { from: 'order', to: 'items', label: '1' },
-    { from: 'items', to: 'line', label: '1..*' },
+    { from: 'api', to: 'service', label: 'Submit order', semantic: 'Dependency', routing: { mode: 'orthogonal', lineStyle: 'dashed', endMarker: 'open-arrow' } },
+    { from: 'service', to: 'repo', label: 'Save aggregate', semantic: 'Dependency', routing: { mode: 'orthogonal', lineStyle: 'dashed', endMarker: 'open-arrow' } },
+    { from: 'customer', to: 'places', label: '1', semantic: 'Relationship', routing: { mode: 'orthogonal', endMarker: 'none' } },
+    { from: 'places', to: 'order', label: '0..*', semantic: 'Relationship', routing: { mode: 'orthogonal', endMarker: 'none' } },
+    { from: 'order', to: 'items', label: '1', semantic: 'Relationship', routing: { mode: 'orthogonal', endMarker: 'none' } },
+    { from: 'items', to: 'line', label: '1..*', semantic: 'Relationship', routing: { mode: 'orthogonal', endMarker: 'none' } },
   ],
 };
 
 const NETWORK_STARTER: StarterTemplateDefinition = {
-  id: 'network',
-  name: 'Segmented application network',
-  section: 'Infrastructure',
-  description: 'Internet edge, router, firewall, DMZ and private subnets, load balancer, application servers, and network storage.',
+  id: 'network', name: 'Segmented application network', section: 'Infrastructure',
+  description: 'Perimeter controls, a DMZ load balancer, private application servers, and a restricted database path.',
   nodes: [
-    { key: 'internet', label: 'Internet', kind: 'system', libraryId: 'network', entryId: 'network.internet', x: 60, y: 170, width: 170, height: 110 },
-    { key: 'router', label: 'Edge router', kind: 'control', libraryId: 'network', entryId: 'network.router', x: 300, y: 170, width: 120, height: 120 },
-    { key: 'firewall', label: 'Firewall', kind: 'control', libraryId: 'network', entryId: 'network.firewall', x: 500, y: 165, width: 150, height: 125 },
-    { key: 'dmz', label: 'DMZ subnet', kind: 'system', libraryId: 'network', entryId: 'network.dmz', x: 730, y: 70, width: 290, height: 190 },
-    { key: 'lb', label: 'Load balancer', kind: 'control', libraryId: 'network', entryId: 'network.load-balancer', x: 785, y: 115, width: 180, height: 115 },
-    { key: 'private', label: 'Private application subnet', kind: 'system', libraryId: 'network', entryId: 'network.subnet', x: 1100, y: 60, width: 560, height: 280 },
-    { key: 'app1', label: 'App server A', kind: 'service', libraryId: 'network', entryId: 'network.server', x: 1160, y: 110, width: 180, height: 105 },
-    { key: 'app2', label: 'App server B', kind: 'service', libraryId: 'network', entryId: 'network.server', x: 1410, y: 110, width: 180, height: 105 },
-    { key: 'storage', label: 'Network storage', kind: 'database', libraryId: 'network', entryId: 'network.storage', x: 1290, y: 255, width: 180, height: 115 },
+    ...heading('05 / Network architecture', 'Segmented application network', 'Public access terminates at the perimeter. Application and data services stay private.'),
+    zone('perimeter', '01 / Perimeter', 'architecture.security-zone', 72, 210, 330, 585),
+    zone('dmz', '02 / DMZ · 10.0.10.0/24', 'network.dmz', 472, 210, 330, 585),
+    zone('private', '03 / Private · 10.0.20.0/24', 'architecture.private-subnet', 872, 210, 496, 585),
+    shape('internet', 'Internet', 'network.internet', 147, 275, 180, 100, { kind: 'system', parent: 'perimeter' }),
+    shape('router', 'Edge router', 'network.router', 147, 455, 180, 110, { kind: 'control', parent: 'perimeter' }),
+    shape('firewall', 'Firewall', 'network.firewall', 147, 645, 180, 110, { kind: 'control', parent: 'perimeter' }),
+    shape('lb', 'Load balancer', 'network.load-balancer', 547, 455, 180, 110, { kind: 'control', parent: 'dmz' }),
+    shape('app1', 'App server A', 'network.server', 912, 305, 180, 120, { parent: 'private' }),
+    shape('app2', 'App server B', 'network.server', 912, 645, 180, 120, { parent: 'private' }),
+    shape('storage', 'Private database', 'integration.database', 1152, 455, 180, 110, { kind: 'database', parent: 'private' }),
   ],
   edges: [
-    { from: 'internet', to: 'router' },
-    { from: 'router', to: 'firewall' },
-    { from: 'firewall', to: 'lb', label: '443' },
-    { from: 'lb', to: 'app1', label: 'HTTP', fromSide: 'east', toSide: 'west' },
-    { from: 'lb', to: 'app2', label: 'HTTP', fromSide: 'east', toSide: 'west' },
-    { from: 'app1', to: 'storage', label: 'NFS', fromSide: 'south', toSide: 'west' },
-    { from: 'app2', to: 'storage', label: 'NFS', fromSide: 'south', toSide: 'east' },
+    { from: 'internet', to: 'router', fromSide: 'south', toSide: 'north' },
+    { from: 'router', to: 'firewall', fromSide: 'south', toSide: 'north' },
+    { from: 'firewall', to: 'lb', label: 'TCP 443', waypoints: [{ x: 438, y: 700 }, { x: 438, y: 510 }] },
+    { from: 'lb', to: 'app1', label: 'TLS 8443', fromSide: 'north', toSide: 'west', waypoints: [{ x: 637, y: 365 }] },
+    { from: 'lb', to: 'app2', label: 'TLS 8443', fromSide: 'south', waypoints: [{ x: 637, y: 705 }] },
+    { from: 'app1', to: 'storage', label: 'TLS 5432', toSide: 'north', waypoints: [{ x: 1242, y: 365 }] },
+    { from: 'app2', to: 'storage', label: 'TLS 5432', toSide: 'south', waypoints: [{ x: 1242, y: 705 }] },
   ],
 };
 
@@ -226,20 +256,29 @@ function allocateId(
   return candidate;
 }
 
-function preferredNodeStyleId(document: OpenChartDocument): string {
+function preferredNodeStyleId(document: OpenChartDocument, spec: StarterTemplateNodeSpec): string {
   const fallback = Object.keys(document.styles).sort()[0];
-  const preferred = document.styles['style.fabric'] === undefined ? fallback : 'style.fabric';
+  const key = /queue|topic|event|stream|pub-sub/.test(spec.entryId) ? 'style.fabric'
+    : /external|client|internet/.test(spec.entryId) ? 'style.operations'
+    : spec.kind === 'database' ? 'style.source'
+    : spec.kind === 'service' ? 'style.target'
+    : 'style.operations';
+  const preferred = document.styles[key] === undefined ? fallback : key;
   if (preferred === undefined) {
     throw new Error('Template insertion requires at least one node style');
   }
   return preferred;
 }
 
-function preferredEdgeStyleId(document: OpenChartDocument): string {
+function preferredEdgeStyleId(document: OpenChartDocument, event: boolean): string {
+  const preferred = event ? 'style.flow-control' : 'style.flow-inbound';
+  if (document.styles[preferred] !== undefined) return preferred;
   const flow = Object.values(document.styles)
     .filter((style) => style.role.toLowerCase().includes('flow'))
     .sort((left, right) => left.id.localeCompare(right.id))[0]?.id;
-  return flow ?? preferredNodeStyleId(document);
+  const fallback = flow ?? Object.keys(document.styles).sort()[0];
+  if (fallback === undefined) throw new Error('Template insertion requires a connector style');
+  return fallback;
 }
 
 function pageNodeIds(document: OpenChartDocument, pageId: string): readonly string[] {
@@ -290,8 +329,6 @@ export function createStarterTemplateTransaction(
   }
 
   const makeUid = request.makeUid ?? randomUid;
-  const nodeStyleId = preferredNodeStyleId(document);
-  const edgeStyleId = preferredEdgeStyleId(document);
   const nodeReserved = new Set<string>();
   const portReserved = new Set<string>();
   const edgeReserved = new Set<string>();
@@ -301,11 +338,22 @@ export function createStarterTemplateTransaction(
   const ops: Operation[] = pageNodeIds(document, request.pageId).map(
     (id): Operation => ({ op: 'delete_node', id }),
   );
+  if (document.title === 'Untitled diagram' && Object.keys(document.nodes).length === 0) {
+    ops.push({ op: 'set_document_title', title: template.name });
+  }
+
+  ops.push({ op: 'rename_page', id: page.id, name: template.name });
+  ops.push({ op: 'set_page_color', id: page.id, color: '#FFFFFF' });
 
   for (const spec of template.nodes) {
     const id = allocateId(document.nodes, nodeReserved, `node.template.${template.id}.${spec.key}`);
     nodeIdsByKey.set(spec.key, id);
     nodeIds.push(id);
+    const resolved = resolveLibraryShape(spec.libraryId, spec.entryId);
+    if (!resolved.ok) throw new Error(`Missing template shape ${spec.entryId}`);
+    const defaults = Object.fromEntries(resolved.definition.properties?.map((property) => [property.name, property.default]) ?? []);
+    const parentId = spec.parent === undefined ? undefined : nodeIdsByKey.get(spec.parent);
+    if (spec.parent !== undefined && parentId === undefined) throw new Error(`Missing template parent ${spec.parent}`);
     const node: Node = {
       id,
       uid: makeUid(),
@@ -313,8 +361,16 @@ export function createStarterTemplateTransaction(
       label: spec.label,
       pageId: request.pageId,
       layerId: request.layerId,
-      styleId: nodeStyleId,
-      data: { shape: { libraryId: spec.libraryId, entryId: spec.entryId }, starterTemplate: template.id },
+      styleId: preferredNodeStyleId(document, spec),
+      ...(parentId === undefined ? {} : { parentId }),
+      ...(spec.container ? { container: { title: spec.label, autoGrow: true, clip: false, padding: 24 } } : {}),
+      data: {
+        shape: { libraryId: spec.libraryId, entryId: spec.entryId },
+        starterTemplate: template.id, fontSize: 16, fontWeight: 600,
+        borderColor: typeof defaults.Accent === 'string' ? defaults.Accent : '#2563EB',
+        fillColor: typeof defaults.Surface === 'string' ? defaults.Surface : '#FFFFFF',
+        textColor: '#20364D', ...spec.data,
+      },
     };
     ops.push(
       { op: 'create_node', node },
@@ -355,24 +411,29 @@ export function createStarterTemplateTransaction(
       direction: 'in',
       side: spec.toSide ?? 'west',
     };
+    const event = spec.semantic === 'Event';
     const edge: Edge = {
       id: edgeId,
       uid: makeUid(),
       fromPortId,
       toPortId,
       label: spec.label ?? '',
-      semantic: spec.semantic ?? 'Flow',
+      semantic: spec.semantic ?? (event ? 'Event' : 'Request'),
       pageId: request.pageId,
       layerId: request.layerId,
-      styleId: edgeStyleId,
+      styleId: preferredEdgeStyleId(document, event),
       routing: {
         mode: 'orthogonal',
         avoidObstacles: true,
         cornerRadius: 9,
         jumpStyle: 'arc',
         endMarker: 'arrow',
+        lineStyle: event ? 'dashed' : 'solid',
+        lineWidth: 2,
+        ...spec.routing,
       },
-      data: { starterTemplate: template.id },
+      data: { starterTemplate: template.id, fontSize: 12, showSemanticLabel: false,
+        strokeColor: event ? '#07856D' : '#526B89' },
     };
     ops.push(
       { op: 'create_port', port: fromPort },
@@ -383,7 +444,7 @@ export function createStarterTemplateTransaction(
       ops.push({
         op: 'set_edge_layout',
         id: edgeId,
-        layout: { waypoints: spec.waypoints.map((point) => ({ ...point })) },
+        layout: { waypoints: spec.waypoints.map((point) => ({ x: point.x, y: point.y })) },
       });
     }
     edgeIds.push(edgeId);

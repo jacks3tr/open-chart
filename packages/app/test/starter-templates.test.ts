@@ -3,6 +3,7 @@ import northstarInput from '../../../examples/northstar-integration.openchart.js
 import { createTransformTransaction, type TransformPreview } from '@openchart/interact';
 import { validateDocument, type OpenChartDocument } from '@openchart/ir';
 import { OperationEngine } from '@openchart/ops';
+import { renderDocumentToSvg } from '@openchart/serialize';
 import { evaluateShapeDefinition } from '@openchart/shapes';
 import { resolveLibraryShape } from '@openchart/shapes/libraries';
 
@@ -53,6 +54,7 @@ function pageSnapshot(document: OpenChartDocument, pageId: string): unknown {
   const edgeIds = new Set(edges.map((edge) => edge.id));
   return {
     nodes,
+    page: document.pages[pageId],
     ports,
     edges,
     overrides: Object.fromEntries(
@@ -121,6 +123,7 @@ describe('starter templates', () => {
         nodes: template.nodes.length,
         edges: template.edges.length,
       });
+      expect(engine.document.pages[pageId]).toMatchObject({ name: template.name, color: '#FFFFFF' });
 
       const insertedNodeIds = new Set(transaction.nodeIds);
       for (const edgeId of transaction.edgeIds) {
@@ -141,6 +144,23 @@ describe('starter templates', () => {
       expect(pageSnapshot(engine.document, pageId)).toEqual(before);
     });
   }
+
+  it('exports editable headings, entity fields, and distinct line conventions without inherited captions', () => {
+    const source = editableDocument();
+    const engine = new OperationEngine(source);
+    const { pageId, layerId } = targetPage(source);
+    const transaction = createStarterTemplateTransaction(source, getStarterTemplate('uml-erd'), {
+      txId: 'tx.template.presentation', pageId, layerId,
+    });
+    expect(engine.apply(transaction.envelope).ok).toBe(true);
+    const svg = renderDocumentToSvg(engine.document, { pageId });
+    expect(svg).toContain('Order domain &amp; persistence');
+    expect(svg).toContain('PK  order_id, line_no');
+    expect(svg).toContain('fill="#FFFFFF"');
+    expect(svg).toContain('stroke-dasharray="8 6"');
+    expect(svg).not.toContain('id="header-title"');
+    expect(svg).not.toContain('MES to ERP');
+  });
 
   it('template insertion composes with a user move and ordered undo', () => {
     const source = editableDocument();

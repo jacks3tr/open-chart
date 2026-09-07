@@ -1,6 +1,40 @@
 import { invoke } from '@tauri-apps/api/core';
-import { open, save } from '@tauri-apps/plugin-dialog';
+import { open, save, confirm } from '@tauri-apps/plugin-dialog';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { validateDocument, type OpenChartDocument } from '@openchart/ir';
+import { safeHttpUrl } from '@openchart/scene';
+
+export async function guardDesktopClose(isDirty: () => boolean): Promise<() => void> {
+  const window = getCurrentWindow();
+  let asking = false;
+  return window.onCloseRequested(async (event) => {
+    if (!isDirty()) return;
+    event.preventDefault();
+    if (asking) return;
+    asking = true;
+    try {
+      if (await confirm('Discard unsaved changes and close OpenChart?', {
+        title: 'Unsaved changes', kind: 'warning', okLabel: 'Discard and close', cancelLabel: 'Keep editing',
+      })) await window.destroy();
+    } finally { asking = false; }
+  });
+}
+
+export async function openExternalLink(value: string): Promise<void> {
+  const url = safeHttpUrl(value);
+  if (url === undefined) throw new Error('Enter a complete HTTP or HTTPS URL');
+  if (isDesktopRuntime()) await invoke('open_external_link', { url });
+  else window.open(url, '_blank', 'noopener,noreferrer');
+}
+
+export async function saveDesktopExport(blob: Blob, filename: string): Promise<boolean> {
+  const extension = filename.split('.').at(-1)!;
+  const path = await save({ title: 'Export diagram', defaultPath: filename,
+    filters: [{ name: `${extension.toUpperCase()} file`, extensions: [extension] }] });
+  if (path === null) return false;
+  await invoke('write_export', { path, bytes: Array.from(new Uint8Array(await blob.arrayBuffer())) });
+  return true;
+}
 
 export interface DesktopDocumentFile {
   readonly path: string;

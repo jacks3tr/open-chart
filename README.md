@@ -13,9 +13,37 @@ are files on disk.
 - Native Windows app with Open, Save, and Save As
 - Canonical JSON documents with atomic, undoable operations
 - Shape libraries, connectors, pages, layers, and text styling
-- Deterministic layout and a one-transaction Beauty Pass
+- Deterministic layout and a previewable, one-transaction Beauty Pass
 - MCP and CLI over the same document the editor shows
 - Export to SVG, PNG, JPEG, PDF, and PowerPoint
+
+The empty canvas offers templates, file opening, and quick shape insertion.
+Templates show previews rendered from their editable content, use distinct shape
+and flow styles, and fit the viewport when inserted. The **Fit** control also
+refits the current diagram. Select an object to reveal **Text style**; layout and
+distribution controls are grouped under **Arrange**.
+
+**Beauty Pass** opens a Before/After comparison for the entire page or selected
+shapes. Manually positioned shapes keep their positions. Selected-shape passes
+leave shared theme/style tokens and objects outside the selection unchanged.
+Page passes preserve styles used by other pages or hidden/locked objects; the
+document theme changes only when the whole document is in scope.
+Beauty Pass identifies roles, arranges unpinned shapes,
+and tidies connectors; headers and legends are rendered automatically.
+Apply commits one undoable edit; Cancel leaves the document untouched. If another
+edit arrives while the preview is open, refresh the preview before applying it.
+
+**Export** offers SVG, PNG, JPEG, PDF, PowerPoint, D2, and Mermaid for the active
+page. Native exports use a Save dialog. Vector and raster bounds include content
+outside the original artboard. PowerPoint includes SVG artwork and a PNG fallback;
+it does not convert the diagram into individually editable PowerPoint shapes.
+Use **Ctrl+K → Open link** to follow an object's URL; SVG exports retain hyperlinks.
+Closing with unsaved changes asks before discarding them.
+
+Native diagram libraries use original vector symbols and labeled artwork previews.
+Duplicate entries have one discoverable home; historical IDs still open in saved
+diagrams. See [the shape catalog guide](docs/SHAPE_CATALOG.md) for artwork scope
+and the reproducible catalog audit.
 
 ## Requirements
 
