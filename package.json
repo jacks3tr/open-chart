@@ -31,7 +31,10 @@
     "prepare": "npm run generate:icons",
     "test": "vitest run --exclude \"**/dist/**\" --exclude \"**/dist-types/**\"",
     "test:watch": "vitest --exclude \"**/dist/**\" --exclude \"**/dist-types/**\"",
-    "typecheck": "tsc -b --pretty false"
+    "typecheck": "tsc -b --pretty false",
+    "test:unit": "vitest run --exclude \"**/dist/**\" --exclude \"**/dist-types/**\" --exclude \"packages/agent/test/**\" --maxWorkers=2",
+    "test:integration": "vitest run packages/agent/test --maxWorkers=2",
+    "test:editor": "node scripts/run-editor-smoke.mjs"
   },
   "dependencies": {
     "immer": "11.1.18",
@@ -48,5 +51,15 @@
     "typescript": "6.0.3",
     "typescript-eslint": "8.68.0",
     "vitest": "4.1.11"
-  }
+  },
+  "description": "Local architecture diagram editor for Windows, with shared GUI, CLI, and MCP operations.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jacks3tr/open-chart.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jacks3tr/open-chart/issues"
+  },
+  "homepage": "https://github.com/jacks3tr/open-chart#readme"
 }

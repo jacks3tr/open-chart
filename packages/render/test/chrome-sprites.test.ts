@@ -87,6 +87,40 @@ function chromeScene(): SceneDescription {
 }
 
 describe('Canvas chrome sprites', () => {
+  it('prepares immutable chrome populations once per raster bucket, not per frame', () => {
+    let widthReads = 0;
+    const scene = chromeScene();
+    const artboard = scene.items[0];
+    if (artboard?.type !== 'group') throw new Error('Missing artboard');
+    const offscreen = {
+      type: 'group' as const, id: 'far', role: 'node' as const,
+      children: [{ type: 'rect' as const, id: 'far-card', fill: '#fff', chromeCacheKey: 'far',
+        frame: { x: 10000, y: 10000, get width() { widthReads += 1; return 80; }, height: 40 },
+      }],
+    };
+    const renderer = new SceneViewportRenderer({ ...scene,
+      items: [{ ...artboard, children: [...artboard.children, offscreen] }],
+    });
+    const cache = new RasterCache<CanvasRasterSurface>((width, height) => ({
+      width, height, context: recordingContext(), blit: () => undefined,
+    }));
+    const context = recordingContext();
+    const camera = { x: 0, y: 0, zoom: 0.75, viewportWidth: 300, viewportHeight: 150 };
+    renderer.paint(context, camera, { chromeCache: cache });
+    widthReads = 0;
+    renderer.paint(context, { ...camera, x: 5, zoom: 0.8 }, { chromeCache: cache });
+    renderer.paintDirty(context, camera, [{ x: 0, y: 0, width: 100, height: 70 }],
+      { chromeCache: cache });
+    expect(widthReads).toBe(0);
+    renderer.paint(context, { ...camera, zoom: 1.25 }, { chromeCache: cache });
+    expect(widthReads).toBeGreaterThan(0);
+    widthReads = 0;
+    renderer.paint(context, camera, { chromeCache: cache });
+    expect(widthReads).toBe(0);
+    renderer.paint(context, camera, { chromeCache: cache, devicePixelRatio: 2 });
+    expect(widthReads).toBeGreaterThan(0);
+  });
+
   it('caches repeated chrome by quantized size, zoom, style, and capped DPR', () => {
     const createdSizes: Array<readonly [number, number]> = [];
     const offscreenCalls: string[][] = [];

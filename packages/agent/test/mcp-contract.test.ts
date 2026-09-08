@@ -19,6 +19,7 @@ import {
 import { OpenChartDocumentSession } from '../src/session.js';
 import { renderDocumentScreenshot } from '../src/screenshot.js';
 import { OpenChartToolKernel } from '../src/tools.js';
+import { timedStage } from './timing.js';
 
 const temporaryDirectories: string[] = [];
 const closeCallbacks: Array<() => Promise<void>> = [];
@@ -51,17 +52,19 @@ async function connectClient(): Promise<{
 
   const session = await OpenChartDocumentSession.open(documentPath);
   const server = createOpenChartMcpServer(
-    new OpenChartToolKernel(session, renderDocumentScreenshot),
+    new OpenChartToolKernel(session, (document, input) =>
+      timedStage('screenshot rasterization', () => renderDocumentScreenshot(document, input))),
   );
   const client = new Client({ name: 'openchart-contract-test', version: '1.0.0' });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   await server.connect(serverTransport);
-  await client.connect(clientTransport);
+  await timedStage('MCP connection', () => client.connect(clientTransport));
   closeCallbacks.push(async () => client.close(), async () => server.close());
   return { client, documentPath };
 }
 
 describe('OpenChart MCP contract', () => {
+  // Real MCP plus repeated native rasterization; stage timings remain visible on failure.
   it('lists and invokes the shared bounded read/apply tools through a real client', async () => {
     const { client, documentPath } = await connectClient();
 
@@ -363,7 +366,7 @@ describe('OpenChart MCP contract', () => {
         ],
       });
     }
-  });
+  }, 30_000);
 
   it('serves the same registry through the socket-free HTTP handler', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'openchart-mcp-http-'));
@@ -373,7 +376,8 @@ describe('OpenChart MCP contract', () => {
 
     const session = await OpenChartDocumentSession.open(documentPath);
     const handler = createOpenChartMcpHandler(
-      new OpenChartToolKernel(session, renderDocumentScreenshot),
+      new OpenChartToolKernel(session, (document, input) =>
+      timedStage('screenshot rasterization', () => renderDocumentScreenshot(document, input))),
     );
     const transport = new StreamableHTTPClientTransport(
       new URL('http://openchart.local/mcp'),

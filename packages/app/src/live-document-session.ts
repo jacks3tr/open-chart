@@ -6,7 +6,6 @@ import {
   type CommittedTransaction,
   type OperationDiagnostic,
   type OperationEnvelope,
-  type OperationHistoryState,
   type RedoResult,
   type UndoResult,
 } from '@openchart/ops';
@@ -18,6 +17,8 @@ type OperationsResult = Awaited<ReturnType<OpenChartToolSession['getOperations']
 type JournalAction = 'commit' | 'undo' | 'redo';
 
 export interface LiveDocumentSessionOptions {
+  /** Maximum retained journal events. Undo/redo and replay history are unchanged. */
+  readonly eventLimit?: number;
   readonly getEngine: () => OperationEngine;
   readonly replaceEngine: (engine: OperationEngine) => void;
   readonly publish: (document: OpenChartDocument) => void;
@@ -56,12 +57,19 @@ function operationFailure(
 /** One live operation session shared by the React editor and in-process MCP. */
 export class LiveDocumentSession implements OpenChartToolSession {
   readonly #options: LiveDocumentSessionOptions;
-  readonly #events: Array<OperationsResult['events'][number]> = [];
+  readonly #events = new Map<number, OperationsResult['events'][number]>();
+  readonly #eventLimit: number;
+  #sequence = 0;
+  #evictedThroughRev = -1;
   #mutationTail: Promise<void> = Promise.resolve();
-  #agentMutationInFlight = false;
+  #pendingMutations = 0;
 
   public constructor(options: LiveDocumentSessionOptions) {
     this.#options = options;
+    this.#eventLimit = options.eventLimit ?? 1_000;
+    if (!Number.isSafeInteger(this.#eventLimit) || this.#eventLimit < 1) {
+      throw new RangeError('Journal eventLimit must be a positive safe integer');
+    }
   }
 
   public get document(): OpenChartDocument {
@@ -77,13 +85,16 @@ export class LiveDocumentSession implements OpenChartToolSession {
   public readonly persistenceFault = undefined;
 
   public reset(engine: OperationEngine): void {
+    if (this.#pendingMutations > 0) throw new Error(busyDiagnostic().message);
     this.#options.replaceEngine(engine);
-    this.#events.length = 0;
+    this.#events.clear();
+    this.#sequence = 0;
+    this.#evictedThroughRev = -1;
     this.#options.publish(engine.document);
   }
 
   public applyLocal(envelope: OperationEnvelope): ApplyResult {
-    if (this.#agentMutationInFlight) {
+    if (this.#pendingMutations > 0) {
       return { ok: false, diagnostics: [busyDiagnostic()] };
     }
     const result = this.#options.getEngine().apply(envelope);
@@ -95,7 +106,7 @@ export class LiveDocumentSession implements OpenChartToolSession {
   }
 
   public undoLocal(): UndoResult {
-    if (this.#agentMutationInFlight) {
+    if (this.#pendingMutations > 0) {
       return { ok: false, diagnostics: [busyDiagnostic()] };
     }
     const result = this.#options.getEngine().undo();
@@ -107,7 +118,7 @@ export class LiveDocumentSession implements OpenChartToolSession {
   }
 
   public redoLocal(): RedoResult {
-    if (this.#agentMutationInFlight) {
+    if (this.#pendingMutations > 0) {
       return { ok: false, diagnostics: [busyDiagnostic()] };
     }
     const result = this.#options.getEngine().redo();
@@ -119,7 +130,7 @@ export class LiveDocumentSession implements OpenChartToolSession {
   }
 
   public getOperations(options: OperationsQuery): Promise<OperationsResult> {
-    const matching = this.#events.filter((event) =>
+    const matching = [...this.#events.values()].filter((event) =>
       options.txId === undefined
         ? event.rev > options.sinceRev
         : event.envelope.txId === options.txId,
@@ -127,7 +138,8 @@ export class LiveDocumentSession implements OpenChartToolSession {
     const start = Math.max(0, matching.length - options.limit);
     return Promise.resolve({
       events: structuredClone(matching.slice(start)),
-      truncated: start > 0,
+      truncated: start > 0 || (this.#evictedThroughRev >= 0 &&
+        (options.txId !== undefined || options.sinceRev < this.#evictedThroughRev)),
     });
   }
 
@@ -151,7 +163,7 @@ export class LiveDocumentSession implements OpenChartToolSession {
     return this.#serialized(async () => {
       const engine = this.#options.getEngine();
       const before = engine.document;
-      const beforeHistory = engine.history;
+      const restore = engine.checkpoint();
       const result = engine.apply(envelope);
       if (!result.ok) {
         return operationFailure(false, before.rev, result.diagnostics);
@@ -160,7 +172,8 @@ export class LiveDocumentSession implements OpenChartToolSession {
         try {
           await this.#options.persist(engine.document);
         } catch (error: unknown) {
-          this.#restore(before, beforeHistory);
+          restore();
+          this.#options.publish(engine.document);
           return {
             ok: false,
             dryRun: false,
@@ -197,7 +210,7 @@ export class LiveDocumentSession implements OpenChartToolSession {
     return this.#serialized(async () => {
       const engine = this.#options.getEngine();
       const before = engine.document;
-      const beforeHistory = engine.history;
+      const restore = engine.checkpoint();
       const result = direction === 'undo' ? engine.undo() : engine.redo();
       if (!result.ok) {
         return {
@@ -212,7 +225,8 @@ export class LiveDocumentSession implements OpenChartToolSession {
       try {
         await this.#options.persist(engine.document);
       } catch (error: unknown) {
-        this.#restore(before, beforeHistory);
+        restore();
+        this.#options.publish(engine.document);
         return {
           ok: false,
           direction,
@@ -234,37 +248,36 @@ export class LiveDocumentSession implements OpenChartToolSession {
   }
 
   #record(action: JournalAction, transaction: CommittedTransaction): void {
-    this.#events.push({
-      sequence: this.#events.length + 1,
+    const sequence = ++this.#sequence;
+    this.#events.set(sequence, {
+      sequence,
       action,
       recordedAt: new Date().toISOString(),
       rev: transaction.rev,
       committedAt: transaction.committedAt,
       envelope: structuredClone(transaction.envelope),
     });
-  }
-
-  #restore(
-    document: OpenChartDocument,
-    history: OperationHistoryState,
-  ): void {
-    const restored = new OperationEngine(document, history);
-    this.#options.replaceEngine(restored);
-    this.#options.publish(restored.document);
+    if (this.#events.size > this.#eventLimit) {
+      const oldest = this.#events.entries().next().value;
+      if (oldest !== undefined) {
+        this.#events.delete(oldest[0]);
+        this.#evictedThroughRev = Math.max(this.#evictedThroughRev, oldest[1].rev);
+      }
+    }
   }
 
   async #serialized<T>(operation: () => Promise<T>): Promise<T> {
+    this.#pendingMutations += 1;
     const previous = this.#mutationTail;
     let release!: () => void;
     this.#mutationTail = new Promise<void>((resolve) => {
       release = resolve;
     });
     await previous;
-    this.#agentMutationInFlight = true;
     try {
       return await operation();
     } finally {
-      this.#agentMutationInFlight = false;
+      this.#pendingMutations -= 1;
       release();
     }
   }

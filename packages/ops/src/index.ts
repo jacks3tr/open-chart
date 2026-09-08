@@ -1,5 +1,6 @@
 import {
   applyPatches,
+  current,
   enablePatches,
   freeze,
   produceWithPatches,
@@ -938,20 +939,24 @@ function applyOperations(
       }
       case 'delete_node': {
         const node = requireNode(document, operation.id, `${path}.id`);
-        Object.values(document.nodes).forEach((candidate) => {
+        // Search plain snapshots so unrelated entities do not become Immer proxies.
+        // current(), unlike original(), also includes edits earlier in this batch.
+        for (const candidate of Object.values(current(document.nodes))) {
           if (candidate.parentId === operation.id) {
+            const child = document.nodes[candidate.id];
+            if (child === undefined) continue;
             if (node.parentId === undefined) {
-              delete candidate.parentId;
+              delete child.parentId;
             } else {
-              candidate.parentId = node.parentId;
+              child.parentId = node.parentId;
             }
           }
-        });
-        const portIds = Object.entries(document.ports)
+        }
+        const portIds = Object.entries(current(document.ports))
           .filter(([, port]) => port.nodeId === operation.id)
           .map(([portId]) => portId);
         const portIdSet = new Set(portIds);
-        const edgeIds = Object.entries(document.edges)
+        const edgeIds = portIds.length === 0 ? [] : Object.entries(current(document.edges))
           .filter(
             ([, edge]) =>
               portIdSet.has(edge.fromPortId) || portIdSet.has(edge.toPortId),
@@ -972,7 +977,7 @@ function applyOperations(
       }
       case 'delete_port': {
         requirePort(document, operation.id, `${path}.id`);
-        const edgeIds = Object.entries(document.edges)
+        const edgeIds = Object.entries(current(document.edges))
           .filter(
             ([, edge]) =>
               edge.fromPortId === operation.id || edge.toPortId === operation.id,
@@ -1046,6 +1051,27 @@ export class OperationEngine {
     return {
       undoStack: this.#undoStack.map(cloneTransaction),
       redoStack: this.#redoStack.map(cloneTransaction),
+    };
+  }
+
+  /**
+   * Capture a rollback point for a serialized mutation. Document and transaction
+   * payloads are owned by the engine; only their collection membership is copied.
+   * The returned closure is bound to this engine and must not span unrelated edits.
+   */
+  public checkpoint(): () => void {
+    const document = this.#document;
+    const undo = this.#undoStack.slice();
+    const redo = this.#redoStack.slice();
+    const idempotency = new Map(this.#idempotency);
+    return () => {
+      this.#document = document;
+      this.#undoStack.length = 0;
+      this.#redoStack.length = 0;
+      for (const transaction of undo) this.#undoStack.push(transaction);
+      for (const transaction of redo) this.#redoStack.push(transaction);
+      this.#idempotency.clear();
+      for (const [key, record] of idempotency) this.#idempotency.set(key, record);
     };
   }
 

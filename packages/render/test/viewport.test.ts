@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 import { validateDocument } from '@openchart/ir';
-import { buildSceneDescription, type SceneDescription } from '@openchart/scene';
+import { buildSceneDescription, type SceneDescription, type SceneGroup } from '@openchart/scene';
 
 import { type CanvasPaintContext, SceneViewportRenderer } from '../src/index.js';
 
@@ -40,6 +40,84 @@ function recordingContext(
 }
 
 describe('SceneViewportRenderer', () => {
+  it('visits only viewport-intersecting dots on large artboards', () => {
+    const scene: SceneDescription = {
+      version: 1, title: 'Grid', description: '',
+      bounds: { x: 0, y: 0, width: 1000, height: 1000 },
+      items: [{ type: 'group', id: 'artboard', role: 'artboard', children: [
+        { type: 'dot-grid', id: 'grid', layer: 'background',
+          frame: { x: 0, y: 0, width: 1000, height: 1000 },
+          step: 10, offset: { x: 0, y: 0 }, radius: 1, fill: '#888', fillOpacity: 0.5 },
+      ] }],
+    };
+    const context = recordingContext([]);
+    const points: number[][] = [];
+    context.arc = (x, y) => { points.push([x, y]); };
+    const stats = new SceneViewportRenderer(scene).paint(context,
+      { x: 200, y: 300, zoom: 1, viewportWidth: 100, viewportHeight: 100 },
+      { layer: 'background' });
+    expect(stats.drawCallCount).toBe(121);
+    expect(points[0]).toEqual([200, 300]);
+    expect(points.at(-1)).toEqual([300, 400]);
+  });
+
+  it('does not inspect offscreen scene groups again during full or dirty paints', () => {
+    let roleReads = 0;
+    const offscreen: SceneGroup = {
+      type: 'group', id: 'offscreen',
+      get role() { roleReads += 1; return 'node' as const; },
+      children: [{ type: 'rect', id: 'far-card', fill: '#fff',
+        frame: { x: 10000, y: 10000, width: 80, height: 40 } }],
+    };
+    const scene: SceneDescription = {
+      version: 1, title: 'Indexed paint', description: '',
+      bounds: { x: 0, y: 0, width: 11000, height: 11000 },
+      items: [{ type: 'group', id: 'artboard', role: 'artboard', children: [offscreen] }],
+    };
+    const renderer = new SceneViewportRenderer(scene);
+    roleReads = 0;
+    const camera = { x: 0, y: 0, zoom: 1, viewportWidth: 100, viewportHeight: 100 };
+    const context = recordingContext([]);
+    expect(renderer.paint(context, camera).visibleIndexedGroups).toBe(0);
+    expect(renderer.paintDirty(context, camera, [{ x: 0, y: 0, width: 100, height: 100 }])
+      .visibleIndexedGroups).toBe(0);
+    expect(roleReads).toBe(0);
+  });
+
+  it('merges visible and uncullable items in original paint order', () => {
+    const rect = (id: string, x: number) => ({
+      type: 'rect' as const, id, fill: id,
+      frame: { x, y: 0, width: 20, height: 20 },
+    });
+    const scene: SceneDescription = {
+      version: 1, title: 'Order', description: '',
+      bounds: { x: 0, y: 0, width: 2000, height: 100 },
+      items: [{ type: 'group', id: 'artboard', role: 'artboard', children: [
+        rect('background', 0),
+        { type: 'group', id: 'a', role: 'node', entityId: 'a', children: [rect('a', 5)] },
+        rect('middle', 10),
+        { type: 'group', id: 'far', role: 'node', children: [rect('far', 1000)] },
+        { type: 'group', id: 'b', role: 'node', entityId: 'b', children: [rect('b', 15)] },
+        rect('foreground', 20),
+      ] }],
+    };
+    const renderer = new SceneViewportRenderer(scene);
+    const camera = { x: 0, y: 0, zoom: 1, viewportWidth: 100, viewportHeight: 100 };
+    for (const dirty of [false, true]) {
+      const fills: string[] = [];
+      const context = recordingContext([]);
+      context.fill = () => { fills.push(context.fillStyle); };
+      const stats = dirty
+        ? renderer.paintDirty(context, camera, [
+          { x: 0, y: 0, width: 50, height: 50 },
+          { x: 10, y: 0, width: 60, height: 50 },
+        ])
+        : renderer.paint(context, camera);
+      expect(fills).toEqual(['background', 'a', 'middle', 'b', 'foreground']);
+      expect(stats.visibleEntityIds).toEqual(['a', 'b']);
+    }
+  });
+
   it('indexes resolved groups and paints only the camera-visible subset in z-order', () => {
     const input: unknown = JSON.parse(readFileSync(fixturePath, 'utf8'));
     const validation = validateDocument(input);

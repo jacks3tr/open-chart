@@ -78,9 +78,13 @@ for (let seed = 1; seed <= 20; seed += 1) {
     frame.x + frame.width > scene.bounds.width - 24 ||
     frame.y + frame.height > scene.bounds.height - 58
   )).length;
+  // Composition centers node frames in the configured artboard, expanding it
+  // for oversized layouts. Export bounds also include overflowing labels/routes.
+  const compositionWidth = Math.max(Number(engine.document.layout.options?.canvasWidth ?? 1440), maxX - minX + 144);
+  const compositionHeight = Math.max(Number(engine.document.layout.options?.canvasHeight ?? 920), maxY - minY + 264);
   if (
-    Math.abs((minX - 72) - (scene.bounds.width - 72 - maxX)) > 8 ||
-    Math.abs((minY - 168) - (scene.bounds.height - 96 - maxY)) > 8
+    Math.abs((minX - 72) - (compositionWidth - 72 - maxX)) > 8 ||
+    Math.abs((minY - 168) - (compositionHeight - 96 - maxY)) > 8
   ) {
     unbalancedCompositionCount += 1;
   }

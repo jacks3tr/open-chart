@@ -90,7 +90,8 @@ describe('lazy feature loading', () => {
     });
     expect(engine.undo()).toMatchObject({ ok: true });
     expect(engine.document.nodes[node.id]).toBeUndefined();
-  });
+  }, 15_000); // Includes on-demand transformation of the pinned 11 MB catalog in Vitest.
+
 
   it('applies a lazily loaded starter through one canonical OperationEngine transaction and undo', async () => {
     const templates = await loadStarterTemplates();

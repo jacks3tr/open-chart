@@ -126,4 +126,3 @@ export async function renderPptx(
   zip.file('ppt/media/image1.svg', svg);
   return zip.generateAsync({ type: 'uint8array', compression: 'DEFLATE' });
 }
-

@@ -75,9 +75,13 @@ export interface CanvasPaintOptions {
   readonly textCache?: CanvasTextRasterCache;
   /**
    * Optional complete scene population used to decide whether a chrome sprite
-   * is worth caching. Painting still visits only the `items` argument.
+   * is worth caching. The population and its items must be immutable; reuse the
+   * array across paints to reuse prepared sprite specifications. Painting still
+   * visits only the `items` argument.
    */
   readonly chromePopulation?: readonly SceneItem[];
+  /** World-space viewport; only untransformed background grids use this bound. */
+  readonly worldViewport?: SceneRect;
 }
 
 export interface CanvasPaintStats {
@@ -109,6 +113,38 @@ interface ChromeCandidates {
   readonly counts: ReadonlyMap<string, number>;
 }
 
+// Weak ownership releases replaced scenes; cap variants across zoom, DPR and layer.
+const preparedChrome = new WeakMap<readonly SceneItem[], Map<string, ChromeCandidates>>();
+const EMPTY_CHROME: ChromeCandidates = { specs: new Map(), counts: new Map() };
+const MAX_CHROME_VARIANTS = 4;
+
+function preparedChromeCandidates(
+  population: readonly SceneItem[], zoom: number, layer: SceneLayer | undefined, dpr: number,
+): ChromeCandidates {
+  const zoomBucket = nextPowerOfTwo(zoom);
+  const key = `${zoomBucket}:${dpr}:${layer ?? 'all'}`;
+  let variants = preparedChrome.get(population);
+  const cached = variants?.get(key);
+  if (cached !== undefined) {
+    variants?.delete(key);
+    variants?.set(key, cached);
+    return cached;
+  }
+  // LOD only changes visibility, not sprite pixels. Count all LODs so fractional
+  // zoom changes within a bucket do not re-prepare the complete population.
+  const candidates = collectChromeCandidates(population, zoomBucket, layer, dpr, false);
+  if (variants === undefined) {
+    variants = new Map();
+    preparedChrome.set(population, variants);
+  }
+  variants.set(key, candidates);
+  if (variants.size > MAX_CHROME_VARIANTS) {
+    const oldest = variants.keys().next().value;
+    if (oldest !== undefined) variants.delete(oldest);
+  }
+  return candidates;
+}
+
 interface PaintRuntime {
   readonly zoom: number;
   readonly devicePixelRatio: number;
@@ -116,6 +152,7 @@ interface PaintRuntime {
   readonly chromeCache: RasterCache<CanvasRasterSurface> | undefined;
   readonly textCache: CanvasTextRasterCache | undefined;
   readonly chromeCandidates: ChromeCandidates;
+  readonly worldViewport: SceneRect | undefined;
 }
 
 function normalizeDevicePixelRatio(value: number | undefined): number {
@@ -508,15 +545,25 @@ function paintMarker(
 function paintDotGrid(
   context: CanvasPaintContext,
   item: Extract<SceneItem, { type: 'dot-grid' }>,
+  viewport: SceneRect | undefined,
 ): number {
   const inheritedAlpha = context.globalAlpha;
-  const right = item.frame.x + item.frame.width;
-  const bottom = item.frame.y + item.frame.height;
+  if (!Number.isFinite(item.step) || item.step <= 0) return 0;
+  const originX = item.frame.x + item.offset.x;
+  const originY = item.frame.y + item.offset.y;
+  const left = viewport === undefined ? originX : Math.max(originX, viewport.x - item.radius);
+  const top = viewport === undefined ? originY : Math.max(originY, viewport.y - item.radius);
+  const right = Math.min(item.frame.x + item.frame.width,
+    viewport === undefined ? Infinity : viewport.x + viewport.width + item.radius);
+  const bottom = Math.min(item.frame.y + item.frame.height,
+    viewport === undefined ? Infinity : viewport.y + viewport.height + item.radius);
+  const startX = originX + Math.max(0, Math.ceil((left - originX) / item.step)) * item.step;
+  const startY = originY + Math.max(0, Math.ceil((top - originY) / item.step)) * item.step;
   context.fillStyle = item.fill;
   context.globalAlpha = inheritedAlpha * item.fillOpacity;
   let drawCallCount = 0;
-  for (let x = item.frame.x + item.offset.x; x <= right; x += item.step) {
-    for (let y = item.frame.y + item.offset.y; y <= bottom; y += item.step) {
+  for (let x = startX; x <= right; x += item.step) {
+    for (let y = startY; y <= bottom; y += item.step) {
       context.beginPath();
       context.arc(x, y, item.radius, 0, Math.PI * 2);
       context.fill();
@@ -532,12 +579,14 @@ function collectChromeCandidates(
   zoom: number,
   requestedLayer: SceneLayer | undefined,
   dpr: number,
+  respectLod = true,
 ): ChromeCandidates {
   const specs = new Map<SceneRectItem, ChromeSpriteSpec>();
   const counts = new Map<string, number>();
+  const zoomBucket = nextPowerOfTwo(zoom);
 
   const visit = (item: SceneItem, inheritedLayer: SceneLayer): void => {
-    if (item.minZoom !== undefined && item.minZoom > zoom) {
+    if (respectLod && item.minZoom !== undefined && item.minZoom > zoom) {
       return;
     }
 
@@ -555,7 +604,7 @@ function collectChromeCandidates(
       return;
     }
 
-    const spec = chromeSpriteSpec(item, nextPowerOfTwo(zoom), dpr);
+    const spec = chromeSpriteSpec(item, zoomBucket, dpr);
     if (spec === undefined) {
       return;
     }
@@ -646,7 +695,10 @@ function paintItem(
         context.clip();
       }
       for (const child of item.children) {
-        drawCallCount += paintItem(context, child, runtime, effectiveLayer);
+        drawCallCount += paintItem(context, child,
+          item.transform !== undefined && item.transform.rotation !== 0
+            ? { ...runtime, worldViewport: undefined } : runtime,
+          effectiveLayer);
       }
       break;
     case 'rect': {
@@ -724,14 +776,12 @@ function paintItem(
       break;
     }
     case 'text':
-      context.fillStyle = item.fill;
-      context.font = `${item.fontStyle ?? 'normal'} ${item.fontWeight ?? 400} ${item.fontSize}px ${item.fontFamily}`;
-      context.textAlign = item.anchor === 'middle' ? 'center' : (item.anchor ?? 'start');
-      context.textBaseline = 'alphabetic';
-      if ('letterSpacing' in context) {
-        context.letterSpacing = `${item.letterSpacing ?? 0}px`;
-      }
       if (runtime.textCache === undefined) {
+        context.fillStyle = item.fill;
+        context.font = `${item.fontStyle ?? 'normal'} ${item.fontWeight ?? 400} ${item.fontSize}px ${item.fontFamily}`;
+        context.textAlign = item.anchor === 'middle' ? 'center' : (item.anchor ?? 'start');
+        context.textBaseline = 'alphabetic';
+        if ('letterSpacing' in context) context.letterSpacing = `${item.letterSpacing ?? 0}px`;
         context.fillText(item.value, item.at.x, item.at.y);
         drawCallCount += paintTextUnderline(context, item);
       } else {
@@ -740,7 +790,7 @@ function paintItem(
       drawCallCount += 1;
       break;
     case 'dot-grid':
-      drawCallCount += paintDotGrid(context, item);
+      drawCallCount += paintDotGrid(context, item, runtime.worldViewport);
       break;
   }
 
@@ -758,15 +808,11 @@ export function paintSceneItemsToCanvas(
     throw new Error('Canvas paint zoom must be finite and positive');
   }
   const devicePixelRatio = normalizeDevicePixelRatio(options.devicePixelRatio);
-  const chromeCandidates =
-    options.chromeCache === undefined
-      ? { specs: new Map<SceneRectItem, ChromeSpriteSpec>(), counts: new Map<string, number>() }
-      : collectChromeCandidates(
-          options.chromePopulation ?? items,
-          zoom,
-          options.layer,
-          devicePixelRatio,
-        );
+  const chromeCandidates = options.chromeCache === undefined
+    ? EMPTY_CHROME
+    : options.chromePopulation === undefined
+      ? collectChromeCandidates(items, zoom, options.layer, devicePixelRatio)
+      : preparedChromeCandidates(options.chromePopulation, zoom, options.layer, devicePixelRatio);
   const runtime: PaintRuntime = {
     zoom,
     devicePixelRatio,
@@ -774,6 +820,7 @@ export function paintSceneItemsToCanvas(
     chromeCache: options.chromeCache,
     textCache: options.textCache,
     chromeCandidates,
+    worldViewport: options.worldViewport,
   };
   let drawCallCount = 0;
   for (const item of items) {

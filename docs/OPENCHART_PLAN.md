@@ -1,5 +1,8 @@
 # OpenChart — Build Plan
 
+> Historical planning reference. This document records earlier goals and checkpoints;
+> it is not the current feature list. See the [README](../README.md) for supported behavior.
+
 **A local, single-user, AAA-quality diagram editor for integration, architecture, and system-connectivity diagrams — where every diagram is equally editable by a human in the GUI and by an AI agent through a machine-facing IR twin.**
 
 Version 1.0 · 29 August 2026 · Status: design-complete, ready to build
@@ -28,7 +31,7 @@ document:
 7. Schema versioning and migrations begin in Phase 0. Backward compatibility is
    promised only from the first tagged public preview.
 8. Loopback MCP authentication is required by default.
-9. The existing SPEL/Plex/ABRA integration diagrams are the primary real-world
+9. The existing sample ERP/manufacturing integration diagrams are the primary real-world
    acceptance reference. OpenChart must preserve their content and editability
    while producing visibly stronger hierarchy, typography, spacing, routing,
    and composition. Basic connectors and initial SVG/PNG proof are pulled into
@@ -1305,7 +1308,7 @@ Benchmark harness in CI with budget gates. Profiling and optimisation against th
 1. **ELK vs dagre at 1.0** — quality versus licence cleanliness. Recommendation: ship ELK, keep the adapter honest by running dagre in CI as a second backend.
 2. **libavoid at 1.0** — ship behind a flag in Phase 4, promote to default if the visual review prefers it.
 3. **Sequence-diagram mode** — as a first-class page type generated from the flow IR, or as a separate diagram kind? Leaning toward a page *view* over the same IR (no data duplication), but this needs a spike.
-4. **Templates at 1.0** — how many bundled templates are needed after the SPEL/Plex/ABRA acceptance corpus proves the core workflow.
+4. **Templates at 1.0** — how many bundled templates are needed after the sample ERP/manufacturing acceptance corpus proves the core workflow.
 5. **Snapshot cadence** — time-based, action-count-based, or both.
 
 ---

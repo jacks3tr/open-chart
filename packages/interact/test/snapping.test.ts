@@ -12,6 +12,22 @@ const candidate = (
 ): SnapCandidate => ({ id, bounds: { x, y, width, height }, onScreen });
 
 describe('smart snapping', () => {
+  test('normalizes each visible candidate once and keeps tie breaks independent of input order', () => {
+    let widthReads = 0;
+    const candidates = ['z', 'a'].map((id) => ({ id, onScreen: true,
+      bounds: { x: 0, y: 0, get width() { widthReads += 1; return 20; }, height: 20 },
+    }));
+    const request = { movingId: 'moving', bounds: { x: 40, y: 0, width: 20, height: 20 },
+      candidates, settings: { snapToObjects: true, snapToGrid: false,
+        snapToGuides: false, threshold: 4 },
+    };
+    const first = snapBounds(request);
+    // One validation/normalization pass, not a pass for every feedback axis.
+    expect(widthReads).toBeLessThanOrEqual(6);
+    expect(snapBounds({ ...request, candidates: [...candidates].reverse() })).toEqual(first);
+    expect(first.distances[0]?.targetId).toBe('a');
+  });
+
   test('emits Lucid-style center, edge, distance, and equal-spacing feedback', () => {
     const evenlySpaced = snapBounds({
       movingId: 'moving',

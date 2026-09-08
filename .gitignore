@@ -41,3 +41,18 @@ src-tauri/target/
 **/src-tauri/icons/StoreLogo.png
 .DS_Store
 Thumbs.db
+
+# Local credentials and machine-specific configuration.
+.env
+.env.*
+!.env.example
+!.env.*.example
+.npmrc
+*.pem
+*.key
+*.p12
+*.pfx
+mcp.json
+*.log
+.vscode/
+.idea/
