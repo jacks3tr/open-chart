@@ -134,3 +134,17 @@ describe('selection state', () => {
     expect(selectAll(initial, guardedItems).selectedIds).toEqual(['eligible']);
   });
 });
+
+
+test('double-click selection reaches editable children while ordinary selection keeps the container', () => {
+  const point = { x: 15, y: 15 };
+  expect(selectAt(createSelectionState(), items, point).selectedIds).toEqual(['systems']);
+  expect(selectAt(createSelectionState(), items, point, { descend: true })).toEqual({
+    scopeId: 'systems', selectedIds: ['inside-a'],
+  });
+  expect(selectAt(createSelectionState(), items, { x: 110, y: 110 }, { descend: true })).toEqual({
+    scopeId: null, selectedIds: ['systems'],
+  });
+  const lockedItems = items.map((item) => item.id === 'inside-a' ? { ...item, locked: true } : item);
+  expect(selectAt(createSelectionState(), lockedItems, point, { descend: true }).selectedIds).toEqual(['systems']);
+});

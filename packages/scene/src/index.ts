@@ -1,3 +1,4 @@
+import { isConnectorAnchor } from '@openchart/ir';
 import { sceneItemsBounds } from './bounds.js';
 export { boundsForItem, boundsForRect, sceneItemsBounds } from './bounds.js';
 import {
@@ -404,6 +405,9 @@ function documentThemeColors(document: OpenChartDocument): ReadonlyMap<string, s
     [PALETTE.white, color('surface', PALETTE.white)],
     [PALETTE.ink, color('textHi', PALETTE.ink)],
     [PALETTE.slate, color('textMid', PALETTE.slate)],
+    ['#15283F', color('textHi', '#15283F')],
+    ['#20364D', color('textHi', '#20364D')],
+    ['#526277', color('textMid', '#526277')],
     [PALETTE.blue, color('compute', PALETTE.blue)],
     [PALETTE.teal, color('data', PALETTE.teal)],
     [PALETTE.orange, color('identity', PALETTE.orange)],
@@ -700,29 +704,9 @@ function nodeShadow(node: Node, bounds: Bounds, style: NodeStyle): SceneRectItem
   };
 }
 
-function isConnectorAnchorNode(node: Node): boolean {
-  return node.kind === 'connector-anchor' && node.data.connectorAnchor === true;
-}
-
-function renderAnchorNode(node: Node, bounds: Bounds, style: NodeStyle): SceneGroup {
-  const nodeId = `node-${sanitizeId(node.id)}`;
-  return {
-    type: 'group',
-    id: nodeId,
-    role: 'node',
-    entityId: node.id,
-    ariaLabel: nodeAriaLabel(node, node.label),
-    opacity: style.opacity,
-    children: [
-      {
-        type: 'circle',
-        id: `${nodeId}-anchor`,
-        center: nodeCenter(bounds),
-        radius: 4,
-        fill: style.accent,
-      },
-    ],
-  };
+function renderAnchorNode(node: Node): SceneGroup {
+  return { type: 'group', id: `node-${sanitizeId(node.id)}`, role: 'node', entityId: node.id,
+    ariaLabel: nodeAriaLabel(node, node.label), children: [] };
 }
 
 function restyleLibraryItem(item: SceneItem, node: Node, bounds: Bounds, style: NodeStyle): SceneItem {
@@ -796,6 +780,7 @@ function renderLibraryNode(
   style: NodeStyle,
   resolveShape: SceneShapeResolver,
 ): SceneGroup | undefined {
+  if (isConnectorAnchor(node)) return renderAnchorNode(node);
   const reference = node.data.shape;
   if (reference === undefined) {
     return undefined;
@@ -855,7 +840,7 @@ function renderLibraryNode(
         type: 'text', id: `node-${sanitizeId(node.id)}-field-${index}`, value,
         at: { x: bounds.x + 16, y: bounds.y + bounds.height * 0.28 + 28 + index * 28 },
         fill: safeColor(node.data.textColor) ?? PALETTE.ink,
-        fontFamily: 'Segoe UI, Arial, sans-serif', fontSize: 14, minZoom: 0.25,
+        fontFamily: 'IBM Plex Sans, sans-serif', fontSize: 14, minZoom: 0.25,
       })),
     ],
   };
@@ -1407,8 +1392,8 @@ function glyphGroup(node: Node, bounds: Bounds, accent: string): SceneGroup {
 }
 
 function renderNode(node: Node, bounds: Bounds, style: NodeStyle): SceneGroup {
-  if (isConnectorAnchorNode(node)) {
-    return renderAnchorNode(node, bounds, style);
+  if (isConnectorAnchor(node)) {
+    return renderAnchorNode(node);
   }
   const data = node.data;
   const label = textValue(node.label, node.id);
@@ -1421,7 +1406,7 @@ function renderNode(node: Node, bounds: Bounds, style: NodeStyle): SceneGroup {
   const titleSize = clamp(readNumber(data, 'fontSize') ?? (kindClass === 'system' ? 20 : 18), 8, 96);
   const titleWeight = clamp(readNumber(data, 'fontWeight') ?? 700, 100, 900);
   const titleStyle = readString(data, 'fontStyle') === 'italic' ? 'italic' : 'normal';
-  const titleFontFamily = readString(data, 'fontFamily') ?? 'Aptos Display, Segoe UI, sans-serif';
+  const titleFontFamily = readString(data, 'fontFamily') ?? 'IBM Plex Sans, sans-serif';
   const titleUnderline = data.underline === true;
   const titleAlignment = readString(data, 'textAlign');
   const titleAnchor: SceneTextItem['anchor'] = titleAlignment === 'center'
@@ -1479,7 +1464,7 @@ function renderNode(node: Node, bounds: Bounds, style: NodeStyle): SceneGroup {
       value: eyebrow.toUpperCase(),
       at: { x: bounds.x + 57, y: bounds.y + 28 },
       fill: PALETTE.slate,
-      fontFamily: 'Cascadia Code, Consolas, monospace',
+      fontFamily: 'IBM Plex Mono, monospace',
       fontSize: 10,
       fontWeight: 600,
       letterSpacing: 1.2,
@@ -1516,7 +1501,7 @@ function renderNode(node: Node, bounds: Bounds, style: NodeStyle): SceneGroup {
       value: visualSubtitle ?? '',
       at: { x: bounds.x + 20, y: subtitleY },
       fill: PALETTE.slate,
-      fontFamily: 'Segoe UI, Arial, sans-serif',
+      fontFamily: 'IBM Plex Sans, sans-serif',
       fontSize: 12,
       minZoom: 0.75,
     });
@@ -1538,7 +1523,7 @@ function renderNode(node: Node, bounds: Bounds, style: NodeStyle): SceneGroup {
         value: status.toUpperCase(),
         at: { x: statusX + statusWidth / 2, y: bounds.y + 31.5 },
         fill: style.accent,
-        fontFamily: 'Cascadia Code, Consolas, monospace',
+        fontFamily: 'IBM Plex Mono, monospace',
         fontSize: 9,
         fontWeight: 700,
         letterSpacing: 0.6,
@@ -1571,7 +1556,7 @@ function renderNode(node: Node, bounds: Bounds, style: NodeStyle): SceneGroup {
         value: ellipsis(capability, Math.max(20, bounds.width - 52), 5.8),
         at: { x: bounds.x + 34, y },
         fill: PALETTE.ink,
-        fontFamily: 'Segoe UI, Arial, sans-serif',
+        fontFamily: 'IBM Plex Sans, sans-serif',
         fontSize: 11,
         minZoom: 0.75,
       },
@@ -1658,7 +1643,7 @@ function renderContainer(
         value: ellipsis(container.title.toUpperCase(), container.titleFrame.width - 32, 7.1),
         at: { x: container.titleFrame.x + 16, y: container.titleFrame.y + 23 },
         fill: PALETTE.ink,
-        fontFamily: 'Segoe UI, Arial, sans-serif',
+        fontFamily: 'IBM Plex Sans, sans-serif',
         fontSize: 13,
         fontWeight: 600,
         letterSpacing: 0.52,
@@ -1710,7 +1695,7 @@ function renderZone(panel: ZonePanel): SceneGroup {
         value: visualLabel.toUpperCase(),
         at: { x: bounds.x + 18, y: bounds.y + 27 },
         fill: panel.accent,
-        fontFamily: 'Cascadia Code, Consolas, monospace',
+        fontFamily: 'IBM Plex Mono, monospace',
         fontSize: 11,
         fontWeight: 700,
         letterSpacing: 1,
@@ -1748,7 +1733,7 @@ function renderEdge(
   const point = edgeLabelPoint(points, layout);
   const lineLabel = edge.data.showSemanticLabel === false ? label : label || semantic || style.label;
   const caption = edge.data.showSemanticLabel === false ? '' : label && semantic ? semantic : label ? semantic : style.label;
-  const labelFontFamily = readString(edge.data, 'fontFamily') ?? 'Segoe UI, Arial, sans-serif';
+  const labelFontFamily = readString(edge.data, 'fontFamily') ?? 'IBM Plex Sans, sans-serif';
   const labelFontSize = clamp(readNumber(edge.data, 'fontSize') ?? 10, 8, 96);
   const labelFontWeight = clamp(readNumber(edge.data, 'fontWeight') ?? 700, 100, 900);
   const labelFontStyle = readString(edge.data, 'fontStyle') === 'italic' ? 'italic' : 'normal';
@@ -1850,7 +1835,7 @@ function renderEdge(
         value: visualCaption,
         at: { x: point.x, y: labelY + Math.max(12, labelLineAdvance) },
         fill: style.stroke,
-        fontFamily: 'Cascadia Code, Consolas, monospace',
+        fontFamily: 'IBM Plex Mono, monospace',
         fontSize: 8.5,
         anchor: 'middle',
         minZoom: 0.75,
@@ -2085,7 +2070,7 @@ function renderHeader(
         value: layoutEyebrow.toUpperCase(),
         at: { x: 72, y: 54 },
         fill: PALETTE.slate,
-        fontFamily: 'Cascadia Code, Consolas, monospace',
+        fontFamily: 'IBM Plex Mono, monospace',
         fontSize: 11,
         fontWeight: 700,
         letterSpacing: 1.6,
@@ -2097,7 +2082,7 @@ function renderHeader(
         value: textValue(document.title, 'OpenChart document'),
         at: { x: 72, y: 94 },
         fill: PALETTE.ink,
-        fontFamily: 'Aptos Display, Segoe UI, sans-serif',
+        fontFamily: 'IBM Plex Sans, sans-serif',
         fontSize: 34,
         fontWeight: 700,
         minZoom: 0.4,
@@ -2108,7 +2093,7 @@ function renderHeader(
         value: layoutSubtitle,
         at: { x: 72, y: 120 },
         fill: PALETTE.slate,
-        fontFamily: 'Segoe UI, Arial, sans-serif',
+        fontFamily: 'IBM Plex Sans, sans-serif',
         fontSize: 13,
         minZoom: 0.75,
       },
@@ -2131,7 +2116,7 @@ function renderHeader(
         value: versionLabel,
         at: { x: headerRight - countBadgeWidth - titleBadgeWidth / 2 - 12, y: 56 },
         fill: PALETTE.paper,
-        fontFamily: 'Cascadia Code, Consolas, monospace',
+        fontFamily: 'IBM Plex Mono, monospace',
         fontSize: 10,
         fontWeight: 700,
         letterSpacing: 0.6,
@@ -2154,7 +2139,7 @@ function renderHeader(
         value: `${nodeCount} NODES  ·  ${edgeCount} FLOWS`,
         at: { x: headerRight - countBadgeWidth / 2, y: 56 },
         fill: PALETTE.ink,
-        fontFamily: 'Cascadia Code, Consolas, monospace',
+        fontFamily: 'IBM Plex Mono, monospace',
         fontSize: 10,
         fontWeight: 700,
         letterSpacing: 0.6,
@@ -2184,6 +2169,9 @@ function renderLegend(
     if (entry === undefined) entries.set(key, { style, flows: [edge] });
     else entry.flows.push(edge);
   }
+  if (entries.size <= 1 || edges.every((edge) => edge.data.starterTemplate === 'mes-erp')) {
+    return { type: 'group', id: 'flow-legend', role: 'legend', ariaLabel: 'Flow legend', children: [] };
+  }
   const y = Math.max(0, canvasHeight - 39);
   const children: SceneItem[] = [
     {
@@ -2203,71 +2191,59 @@ function renderLegend(
       value: 'FLOW LEGEND',
       at: { x: 72, y },
       fill: PALETTE.slate,
-      fontFamily: 'Cascadia Code, Consolas, monospace',
+      fontFamily: 'IBM Plex Mono, monospace',
       fontSize: 10,
       fontWeight: 700,
       letterSpacing: 1.3,
     },
   ];
-  if (entries.size === 0 || edges.length === 0) {
-    children.push({
-      type: 'text',
-      id: 'legend-empty',
-      value: 'No flows on this page',
-      at: { x: 164, y },
-      fill: PALETTE.slate,
-      fontFamily: 'Segoe UI, Arial, sans-serif',
-      fontSize: 11,
-    });
-  } else {
-    let x = 164;
-    for (const [styleId, { style, flows }] of entries) {
-      const label = flows.every((edge) => typeof edge.data.starterTemplate === 'string')
-        ? [...new Set(flows.map((edge) => edge.semantic))].join(' / ')
-        : style.label;
-      const width = Math.min(270, Math.max(100, estimateTextWidth(label, 5.6) + 48));
-      const legendLine = style.dash === undefined
-        ? {
-            type: 'path' as const,
-            id: `legend-${sanitizeId(styleId)}-line`,
-            commands: [
-              { type: 'move' as const, to: { x, y: y - 4 } },
-              { type: 'line' as const, to: { x: x + 28, y: y - 4 } },
-            ],
-            fill: 'none',
-            stroke: style.stroke,
-            strokeWidth: 2.4,
-            lineCap: 'round' as const,
-          }
-        : {
-            type: 'path' as const,
-            id: `legend-${sanitizeId(styleId)}-line`,
-            commands: [
-              { type: 'move' as const, to: { x, y: y - 4 } },
-              { type: 'line' as const, to: { x: x + 28, y: y - 4 } },
-            ],
-            fill: 'none',
-            stroke: style.stroke,
-            strokeWidth: 2.4,
-            dash: style.dash,
-            lineCap: 'round' as const,
-          };
-      children.push(
-        legendLine,
-        {
-          type: 'text',
-          id: `legend-${sanitizeId(styleId)}-label`,
-          value: label,
-          at: { x: x + 38, y },
-          fill: PALETTE.ink,
-          fontFamily: 'Segoe UI, Arial, sans-serif',
-          fontSize: 11,
-        },
-      );
-      x += width;
-      if (x > canvasWidth - 100) {
-        break;
-      }
+  let x = 164;
+  for (const [styleId, { style, flows }] of entries) {
+    const label = flows.every((edge) => typeof edge.data.starterTemplate === 'string')
+      ? [...new Set(flows.map((edge) => edge.semantic))].join(' / ')
+      : style.label;
+    const width = Math.min(270, Math.max(100, estimateTextWidth(label, 5.6) + 48));
+    const legendLine = style.dash === undefined
+      ? {
+          type: 'path' as const,
+          id: `legend-${sanitizeId(styleId)}-line`,
+          commands: [
+            { type: 'move' as const, to: { x, y: y - 4 } },
+            { type: 'line' as const, to: { x: x + 28, y: y - 4 } },
+          ],
+          fill: 'none',
+          stroke: style.stroke,
+          strokeWidth: 2.4,
+          lineCap: 'round' as const,
+        }
+      : {
+          type: 'path' as const,
+          id: `legend-${sanitizeId(styleId)}-line`,
+          commands: [
+            { type: 'move' as const, to: { x, y: y - 4 } },
+            { type: 'line' as const, to: { x: x + 28, y: y - 4 } },
+          ],
+          fill: 'none',
+          stroke: style.stroke,
+          strokeWidth: 2.4,
+          dash: style.dash,
+          lineCap: 'round' as const,
+        };
+    children.push(
+      legendLine,
+      {
+        type: 'text',
+        id: `legend-${sanitizeId(styleId)}-label`,
+        value: label,
+        at: { x: x + 38, y },
+        fill: PALETTE.ink,
+        fontFamily: 'IBM Plex Sans, sans-serif',
+        fontSize: 11,
+      },
+    );
+    x += width;
+    if (x > canvasWidth - 100) {
+      break;
     }
   }
   return {
@@ -2570,6 +2546,7 @@ export function buildSceneDescription(
       const children = (childIdsByGroup.get(node.id) ?? [])
         .map((childId) => nodesById.get(childId))
         .filter((child): child is Node => child !== undefined)
+        .sort((left, right) => compareNodePaintOrder(document, left, right))
         .map(renderHierarchyNode)
         .filter((group): group is SceneGroup => group !== undefined);
       return {
@@ -2610,6 +2587,7 @@ export function buildSceneDescription(
     const children = container.childIds
       .map((childId) => nodesById.get(childId))
       .filter((child): child is Node => child !== undefined)
+      .sort((left, right) => compareNodePaintOrder(document, left, right))
       .map(renderHierarchyNode)
       .filter((group): group is SceneGroup => group !== undefined);
     return { ...renderContainer(node, container, style, children), ...(href === undefined ? {} : { href }) };
@@ -2662,7 +2640,7 @@ export function buildSceneDescription(
           },
         ]
       : []),
-    ...(hasDiagramContent && !nodes.some((node) => node.data.role === 'page-title')
+    ...(hasDiagramContent && !nodes.some((node) => node.data.role === 'page-title' || typeof node.data.starterTemplate === 'string')
       ? [renderHeader(document, page, layoutOptions, nodes.length, edges.length, canvasWidth)]
       : []),
     ...zones.map(renderZone),

@@ -27,7 +27,7 @@ import type {
   SceneTextItem,
 } from './index.js';
 
-const DEFAULT_FONT_FAMILY = 'Segoe UI, Arial, sans-serif';
+const DEFAULT_FONT_FAMILY = 'IBM Plex Sans, sans-serif';
 const DEFAULT_TEXT_COLOR = '#10213A';
 const DEFAULT_TITLE = 'OpenChart shape scene';
 const TEXT_MIN_ZOOM = 0.4;

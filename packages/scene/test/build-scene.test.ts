@@ -456,7 +456,7 @@ describe('buildSceneDescription', () => {
     expect(body).toMatchObject({ type: 'rect', dash: [6, 3] });
   });
 
-  it('renders floating connector anchors as a single centered endpoint dot', () => {
+  it('keeps internal connector anchors invisible', () => {
     const input: unknown = JSON.parse(readFileSync(fixturePath, 'utf8'));
     const validation = validateDocument(input);
     if (!validation.ok) {
@@ -484,11 +484,6 @@ describe('buildSceneDescription', () => {
     if (group?.type !== 'group') {
       throw new Error('Expected an anchor node group');
     }
-    expect(group.children).toHaveLength(1);
-    expect(group.children[0]).toMatchObject({
-      type: 'circle',
-      center: { x: 500.005, y: 300.005 },
-      radius: 4,
-    });
+    expect(group.children).toHaveLength(0);
   });
 });

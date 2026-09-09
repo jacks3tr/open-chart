@@ -13,6 +13,7 @@ coverage/
 .task/
 .superpowers/
 .playwright-cli/
+.openai/hosting.json
 AGENTS.md
 design-qa.md
 docs/PHASE_*_EXECUTION.md

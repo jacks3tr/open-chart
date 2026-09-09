@@ -1,6 +1,7 @@
 import type { SceneDescription } from '@openchart/scene';
 import type PdfConstructor from 'pdfkit';
-import { renderSceneToSvg } from './index.js';
+import { loadBrowserFonts, renderPortableSvg } from './browser-fonts.js';
+import { BUNDLED_FONTS, plexPdfFont } from './fonts.js';
 import { renderPdf, renderPptx } from './office-export.js';
 import Helvetica from 'pdfkit/standard-fonts/Helvetica';
 import HelveticaBold from 'pdfkit/standard-fonts/HelveticaBold';
@@ -16,7 +17,7 @@ export async function exportOfficeBlob(
   format: 'pdf' | 'pptx',
   fallbackPng?: Uint8Array,
 ): Promise<Blob> {
-  const svg = renderSceneToSvg(scene);
+  const svg = await renderPortableSvg(scene);
   if (format === 'pptx') {
     if (fallbackPng === undefined) throw new Error('PowerPoint requires a PNG preview');
     return new Blob([new Uint8Array(await renderPptx(svg, fallbackPng, scene, scene.description))], {
@@ -26,9 +27,7 @@ export async function exportOfficeBlob(
   const pdfkit = await import('pdfkit') as unknown as { default: typeof PdfConstructor; registerStdFonts?: (...fonts: unknown[]) => void };
   pdfkit.registerStdFonts?.(Helvetica, HelveticaBold, HelveticaOblique, HelveticaBoldOblique,
     Courier, CourierBold, CourierOblique, CourierBoldOblique);
-  const font = (family: string, bold: boolean, italic: boolean): string => {
-    const base = /mono|consolas|cascadia/i.test(family) ? 'Courier' : 'Helvetica';
-    return base + (bold && italic ? '-BoldOblique' : bold ? '-Bold' : italic ? '-Oblique' : '');
-  };
-  return new Blob([new Uint8Array(await renderPdf(pdfkit.default, svg, scene, scene.description, font))], { type: 'application/pdf' });
+  const bytes = await loadBrowserFonts();
+  const fonts = Object.fromEntries(BUNDLED_FONTS.map((font, index) => [font.file, bytes[index]!]));
+  return new Blob([new Uint8Array(await renderPdf(pdfkit.default, svg, scene, scene.description, plexPdfFont, fonts))], { type: 'application/pdf' });
 }

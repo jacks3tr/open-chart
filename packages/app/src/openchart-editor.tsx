@@ -1,3 +1,4 @@
+import { isConnectorAnchor } from '@openchart/ir';
 import {
   useCallback,
   useEffect,
@@ -93,7 +94,7 @@ import {
   type SceneDescription,
   type ScenePathCommand,
 } from '@openchart/scene';
-import { renderSceneToSvg } from '@openchart/serialize';
+import { renderPortableSvg } from '@openchart/serialize/browser-fonts';
 import {
   evaluateShapeDefinition,
   type EvaluatedGeometry,
@@ -240,10 +241,11 @@ export interface ConnectorPortHit {
 interface ConnectorDragPreview {
   readonly from: InteractionPoint;
   readonly to: InteractionPoint;
-  readonly target?: ConnectorPortHit;
+  readonly target?: ConnectorPortHit | undefined;
 }
 
 type Gesture =
+  | { readonly mode: 'edge-move'; readonly edgeId: string; readonly start: InteractionPoint; readonly current: InteractionPoint; readonly from: InteractionPoint; readonly to: InteractionPoint }
   | {
       readonly mode: 'move';
       readonly startWorld: InteractionPoint;
@@ -303,7 +305,7 @@ type Gesture =
       readonly source: ConnectorPortHit;
       readonly startPointer: InteractionPoint;
       readonly current: InteractionPoint;
-      readonly target?: ConnectorPortHit;
+      readonly target?: ConnectorPortHit | undefined;
       readonly moved: boolean;
     }
   | {
@@ -313,7 +315,7 @@ type Gesture =
       readonly fixed: InteractionPoint;
       readonly startPointer: InteractionPoint;
       readonly current: InteractionPoint;
-      readonly target?: ConnectorPortHit;
+      readonly target?: ConnectorPortHit | undefined;
       readonly moved: boolean;
     };
 
@@ -677,7 +679,8 @@ async function rasterizeScene(
   }
 }
 
-function printScene(scene: SceneDescription): void {
+async function printScene(scene: SceneDescription): Promise<void> {
+  const svg = await renderPortableSvg(scene);
   const frame = window.document.createElement('iframe');
   frame.title = 'Print diagram';
   frame.style.cssText = 'position:fixed;left:-10000px;width:1px;height:1px;border:0';
@@ -688,7 +691,7 @@ function printScene(scene: SceneDescription): void {
     void target.document.fonts.ready.then(() => { target.focus(); target.print(); });
   };
   const title = scene.title.replace(/[&<>]/g, '');
-  frame.srcdoc = `<!doctype html><html><head><title>${title}</title><style>html,body{margin:0;background:white}svg{display:block;width:100%;height:auto}@page{margin:8mm}</style></head><body>${renderSceneToSvg(scene)}</body></html>`;
+  frame.srcdoc = `<!doctype html><html><head><title>${title}</title><style>html,body{margin:0;background:white}svg{display:block;width:100%;height:auto}@page{margin:8mm}</style></head><body>${svg}</body></html>`;
   window.document.body.append(frame);
 }
 
@@ -813,7 +816,7 @@ function selectableItems(
   frames: Readonly<Record<string, TransformFrame>>,
 ): readonly SelectableItem[] {
   return Object.values(document.nodes)
-    .filter((node) => node.pageId === pageId && node.data.connectorAnchor !== true)
+    .filter((node) => node.pageId === pageId && !isConnectorAnchor(node))
     .sort((left, right) => {
       const zIndex =
         (document.layout.overrides[left.id]?.zIndex ?? 0) -
@@ -1216,10 +1219,6 @@ const CONNECTOR_ANCHOR_KIND = 'connector-anchor';
 const CONNECTOR_ANCHOR_SIZE = 0.01;
 const MAX_BROWSER_DOCUMENT_BYTES = 32 * 1024 * 1024;
 
-function isConnectorAnchorNode(node: Node | undefined): boolean {
-  return node?.kind === CONNECTOR_ANCHOR_KIND && node.data.connectorAnchor === true;
-}
-
 export function buildConnectorCreateOperations(
   fromPort: Port,
   toPort: Port,
@@ -1250,7 +1249,7 @@ export function buildRelinkEdgeOperations(
   const priorPortId = endpoint === 'from' ? edge.fromPortId : edge.toPortId;
   const priorPort = document.ports[priorPortId];
   const priorNode = priorPort === undefined ? undefined : document.nodes[priorPort.nodeId];
-  if (priorPort !== undefined && isConnectorAnchorNode(priorNode)) {
+  if (priorPort !== undefined && isConnectorAnchor(priorNode)) {
     const anchorPortIds = new Set(
       Object.values(document.ports)
         .filter((candidate) => candidate.nodeId === priorPort.nodeId)
@@ -1369,6 +1368,35 @@ export function relinkEdgeTransaction(
   };
 }
 
+export function setLineAngleTransaction(
+  document: OpenChartDocument,
+  request: { txId: string; edgeId: string; angle: number; from: InteractionPoint; to: InteractionPoint },
+): OperationEnvelope | undefined {
+  const edge = document.edges[request.edgeId];
+  if (edge === undefined || document.layers[edge.layerId]?.locked || !Number.isFinite(request.angle)) return;
+  const length = Math.hypot(request.to.x - request.from.x, request.to.y - request.from.y);
+  if (length === 0) return;
+  const radians = request.angle * Math.PI / 180;
+  const to = { x: request.from.x + length * Math.cos(radians), y: request.from.y + length * Math.sin(radians) };
+  const scratch = new OperationEngine(document);
+  const ops: Operation[] = [];
+  for (const endpoint of ['from', 'to'] as const) {
+    const tx = detachEdgeEndpointTransaction(scratch.document, {
+      txId: `${request.txId}.${endpoint}`, edgeId: edge.id, endpoint,
+      point: endpoint === 'from' ? request.from : to,
+    });
+    if (tx === undefined || !scratch.apply(tx).ok) return;
+    ops.push(...tx.ops);
+    const updatedEdge = scratch.document.edges[edge.id]!;
+    const port = scratch.document.ports[endpoint === 'from' ? updatedEdge.fromPortId : updatedEdge.toPortId]!;
+    if (scratch.document.nodes[port.nodeId]?.parentId !== undefined) {
+      ops.push({ op: 'set_node_parent', id: port.nodeId, parentId: null });
+    }
+  }
+  ops.push({ op: 'set_edge_layout', id: edge.id, layout: { ...document.layout.edgeOverrides?.[edge.id], waypoints: [] } });
+  return { txId: request.txId, actor: 'user', origin: 'gui', baseRev: document.rev, ops };
+}
+
 export function detachEdgeEndpointTransaction(
   document: OpenChartDocument,
   request: {
@@ -1392,7 +1420,7 @@ export function detachEdgeEndpointTransaction(
     height: CONNECTOR_ANCHOR_SIZE,
     pinned: true,
   } as const;
-  if (existingPort !== undefined && isConnectorAnchorNode(existingNode)) {
+  if (existingPort !== undefined && isConnectorAnchor(existingNode)) {
     return {
       txId: request.txId,
       actor: 'user',
@@ -1440,6 +1468,38 @@ export function detachEdgeEndpointTransaction(
       },
     ],
   };
+}
+
+export function createAssetClipboardPayload(
+  document: OpenChartDocument,
+  selectedIds: readonly string[],
+  frames: Readonly<Record<string, TransformFrame>>,
+  connectors: readonly SceneConnectorGeometry[],
+): ClipboardPayload {
+  const scratch = new OperationEngine(document);
+  const nodeIds = selectedIds.filter((id) => document.nodes[id] !== undefined);
+  const clipboardFrames = { ...frames };
+  const copiedNodes = new Set(nodeIds.length === 0 ? [] : Object.keys(createClipboardPayload(document, nodeIds, frames).nodes));
+  for (const edgeId of selectedIds.filter((id) => document.edges[id] !== undefined)) {
+    for (const endpoint of ['from', 'to'] as const) {
+      const sourceEdge = scratch.document.edges[edgeId]!;
+      const sourcePort = scratch.document.ports[endpoint === 'from' ? sourceEdge.fromPortId : sourceEdge.toPortId]!;
+      if (copiedNodes.has(sourcePort.nodeId)) continue;
+      const geometry = connectors.find((candidate) => candidate.edgeId === edgeId);
+      if (geometry === undefined) throw new Error('Selected connector geometry is unavailable');
+      const point = endpoint === 'from' ? geometry.points[0]! : geometry.points.at(-1)!;
+      const transaction = detachEdgeEndpointTransaction(scratch.document, {
+        txId: `clipboard.${edgeId}.${endpoint}`, edgeId, endpoint, point,
+      });
+      if (transaction === undefined || !scratch.apply(transaction).ok) throw new Error('Could not copy connector endpoint');
+      const edge = scratch.document.edges[edgeId]!;
+      const port = scratch.document.ports[endpoint === 'from' ? edge.fromPortId : edge.toPortId]!;
+      const layout = scratch.document.layout.overrides[port.nodeId]!;
+      nodeIds.push(port.nodeId);
+      clipboardFrames[port.nodeId] = { x: layout.x!, y: layout.y!, width: layout.width!, height: layout.height! };
+    }
+  }
+  return createClipboardPayload(scratch.document, nodeIds, clipboardFrames);
 }
 
 export function connectorDragExceededThreshold(
@@ -1874,6 +1934,40 @@ function connectorSegmentAt(
   return projection !== undefined && projection.distance <= tolerance ? projection.segmentIndex : undefined;
 }
 
+export interface ConnectorSegmentHandle {
+  readonly segmentIndex: number;
+  readonly point: InteractionPoint;
+}
+
+export function connectorSegmentHandles(
+  points: readonly InteractionPoint[],
+  minimumSegmentLength = 0,
+): readonly ConnectorSegmentHandle[] {
+  const handles: ConnectorSegmentHandle[] = [];
+  for (let segmentIndex = 0; segmentIndex < points.length - 1; segmentIndex += 1) {
+    const from = points[segmentIndex];
+    const to = points[segmentIndex + 1];
+    if (from === undefined || to === undefined) continue;
+    if (Math.hypot(to.x - from.x, to.y - from.y) < minimumSegmentLength) continue;
+    handles.push({
+      segmentIndex,
+      point: { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 },
+    });
+  }
+  return handles;
+}
+
+export function connectorSegmentHandleAt(
+  points: readonly InteractionPoint[],
+  point: InteractionPoint,
+  tolerance: number,
+  minimumSegmentLength = 0,
+): ConnectorSegmentHandle | undefined {
+  return connectorSegmentHandles(points, minimumSegmentLength).find(
+    (handle) => Math.hypot(handle.point.x - point.x, handle.point.y - point.y) <= tolerance,
+  );
+}
+
 function edgeLabelAt(
   document: OpenChartDocument,
   connector: SceneConnectorGeometry,
@@ -1969,7 +2063,7 @@ export function connectorLabelEditorStyle(
     width,
     height,
     fontSize: clamp(fontSize * request.camera.zoom, 11, 28),
-    fontFamily: typeof edge.data.fontFamily === 'string' ? edge.data.fontFamily : 'Segoe UI, Arial, sans-serif',
+    fontFamily: typeof edge.data.fontFamily === 'string' ? edge.data.fontFamily : 'IBM Plex Sans, sans-serif',
     fontWeight: typeof edge.data.fontWeight === 'number' ? edge.data.fontWeight : 700,
     fontStyle: edge.data.fontStyle === 'italic' ? 'italic' : 'normal',
     textAlign: edge.data.textAlign === 'left' ? 'left' : edge.data.textAlign === 'right' ? 'right' : 'center',
@@ -2234,6 +2328,7 @@ interface CanvasStageProps {
     waypointIndex: number,
     point: InteractionPoint,
   ) => void;
+  readonly onMoveEdge: (edgeId: string, delta: InteractionPoint) => void;
   readonly onEdgeSegmentCommit: (
     edgeId: string,
     segmentIndex: number,
@@ -2270,6 +2365,7 @@ function CanvasStage({
   onDetachEdgeEndpoint,
   onAddEdgeWaypoint,
   onEdgeWaypointCommit,
+  onMoveEdge,
   onEdgeSegmentCommit,
   onBeginTextEdit,
   onBeginEdgeLabelEdit,
@@ -2455,19 +2551,20 @@ function CanvasStage({
         overlay.fillRect(screen.x - 5, screen.y - 5, 10, 10);
         overlay.strokeRect(screen.x - 5, screen.y - 5, 10, 10);
       });
-      if (connector.mode === 'orthogonal') {
-        for (let segmentIndex = 0; segmentIndex < connector.points.length - 1; segmentIndex += 1) {
-          const from = connector.points[segmentIndex];
-          const to = connector.points[segmentIndex + 1];
-          if (from === undefined || to === undefined) continue;
-          const midpoint = screenPoint({ x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 }, camera);
-          overlay.beginPath();
-          overlay.arc(midpoint.x, midpoint.y, 3.25, 0, Math.PI * 2);
-          overlay.fillStyle = '#EFF6FF';
-          overlay.strokeStyle = '#2563EB';
-          overlay.fill();
-          overlay.stroke();
-        }
+      for (const handle of connectorSegmentHandles(connector.points, 24 / camera.zoom)) {
+        const midpoint = screenPoint(handle.point, camera);
+        overlay.beginPath();
+        overlay.arc(midpoint.x, midpoint.y, 6, 0, Math.PI * 2);
+        overlay.fillStyle = '#FFFFFF';
+        overlay.strokeStyle = '#2563EB';
+        overlay.fill();
+        overlay.stroke();
+        overlay.beginPath();
+        overlay.moveTo(midpoint.x - 2.5, midpoint.y);
+        overlay.lineTo(midpoint.x + 2.5, midpoint.y);
+        overlay.moveTo(midpoint.x, midpoint.y - 2.5);
+        overlay.lineTo(midpoint.x, midpoint.y + 2.5);
+        overlay.stroke();
       }
       const edge = document.edges[connector.edgeId];
       if (edge !== undefined && edge.label.trim().length > 0) {
@@ -2626,7 +2723,7 @@ function CanvasStage({
         camera,
       );
       const label = `X ${Math.round(snapVisuals.coordinates.x)}  Y ${Math.round(snapVisuals.coordinates.y)}`;
-      overlay.font = '600 11px Consolas, monospace';
+      overlay.font = '11px "IBM Plex Mono", monospace';
       const metrics = overlay.measureText(label);
       overlay.fillStyle = '#0F172A';
       overlay.fillRect(at.x - metrics.width / 2 - 7, at.y + 10, metrics.width + 14, 22);
@@ -2702,6 +2799,8 @@ function CanvasStage({
         );
       } else if (!cancelled && gesture?.mode === 'edge-label' && gesture.moved) {
         onEdgeLabelPositionCommit(gesture.edgeId, gesture.labelT);
+      } else if (!cancelled && gesture?.mode === 'edge-move') {
+        onMoveEdge(gesture.edgeId, { x: gesture.current.x - gesture.start.x, y: gesture.current.y - gesture.start.y });
       } else if (!cancelled && gesture?.mode === 'edge-segment' && gesture.moved) {
         onEdgeSegmentCommit(gesture.edgeId, gesture.segmentIndex, gesture.current);
       } else if (!cancelled && gesture?.mode === 'connector-create' && gesture.moved) {
@@ -2741,6 +2840,7 @@ function CanvasStage({
       onCreateConnector,
       onDetachEdgeEndpoint,
       onEdgeLabelPositionCommit,
+      onMoveEdge,
       onEdgeSegmentCommit,
       onEdgeWaypointCommit,
       onRelinkEdge,
@@ -2865,6 +2965,23 @@ function CanvasStage({
         setWaypointPreview({ edgeId: selectedEdgeId, waypointIndex, point });
         return;
       }
+      if (selectedConnector !== undefined) {
+        const segmentHandle = connectorSegmentHandleAt(
+          selectedConnector.points,
+          point,
+          9 / camera.zoom,
+          24 / camera.zoom,
+        );
+        if (segmentHandle !== undefined) {
+          onAddEdgeWaypoint(selectedEdgeId, segmentHandle.point);
+          return;
+        }
+      }
+      if (selectedConnector !== undefined && !event.shiftKey && connectorAt([selectedConnector], point, 7 / camera.zoom)) {
+        gestureRef.current = { mode: 'edge-move', edgeId: selectedEdgeId, start: point, current: point,
+          from: selectedConnector.points[0]!, to: selectedConnector.points.at(-1)! };
+        return;
+      }
       if (selectedConnector?.mode === 'orthogonal') {
         const segmentIndex = connectorSegmentAt(selectedConnector, point, 7 / camera.zoom);
         if (segmentIndex !== undefined) {
@@ -2927,6 +3044,9 @@ function CanvasStage({
       }
     }
     let nextSelection = selectAt(selection, items, point, { toggle: event.shiftKey });
+    if (nextSelection.selectedIds.length === 0 && selection.scopeId !== null) {
+      nextSelection = selectAt(createSelectionState(), items, point, { toggle: event.shiftKey });
+    }
     if (nextSelection.selectedIds.length === 0) {
       const connector = connectorAt(connectors, point, 7 / camera.zoom);
       if (connector !== undefined) {
@@ -2948,6 +3068,10 @@ function CanvasStage({
         startWorld: point,
         selectedIds: nextSelection.selectedIds,
       };
+    } else if (nextSelection.selectedIds.length === 1 && document.edges[nextSelection.selectedIds[0]!] !== undefined) {
+      const edge = connectors.find((item) => item.edgeId === nextSelection.selectedIds[0])!;
+      gestureRef.current = { mode: 'edge-move', edgeId: edge.edgeId, start: point, current: point,
+        from: edge.points[0]!, to: edge.points.at(-1)! };
     } else if (nextSelection.selectedIds.length === 0) {
       gestureRef.current = { mode: 'marquee', startWorld: point };
       setMarquee({ x: point.x, y: point.y, width: 0, height: 0 });
@@ -2960,7 +3084,37 @@ function CanvasStage({
     const gesture = gestureRef.current;
     const point = worldPoint(event, camera);
     if (gesture === null) {
+      const hit = selectAt(createSelectionState(), items, point);
+      const selectedEdgeId = selection.selectedIds.length === 1 &&
+        document.edges[selection.selectedIds[0]!] !== undefined
+        ? selection.selectedIds[0]
+        : undefined;
+      const selectedConnector = selectedEdgeId === undefined
+        ? undefined
+        : connectors.find((candidate) => candidate.edgeId === selectedEdgeId);
+      const bendHandle = selectedConnector === undefined
+        ? undefined
+        : connectorSegmentHandleAt(selectedConnector.points, point, 9 / camera.zoom, 24 / camera.zoom);
+      const waypointIndex = selectedEdgeId === undefined
+        ? undefined
+        : waypointAt(document, selectedEdgeId, point, 8 / camera.zoom);
+      event.currentTarget.style.cursor = tool !== 'select'
+        ? ''
+        : bendHandle !== undefined
+          ? 'crosshair'
+          : waypointIndex !== undefined
+            ? 'grab'
+            : hit.selectedIds.length > 0 || connectorAt(connectors, point, 7 / camera.zoom)
+              ? 'move'
+              : '';
       setHoveredNodeId(hoveredConnectorNodeId(items, point, 18 / camera.zoom) ?? null);
+      return;
+    }
+    if (gesture.mode === 'edge-move') {
+      gestureRef.current = { ...gesture, current: point };
+      const delta = { x: point.x - gesture.start.x, y: point.y - gesture.start.y };
+      setConnectorDragPreview({ from: { x: gesture.from.x + delta.x, y: gesture.from.y + delta.y }, to: { x: gesture.to.x + delta.x, y: gesture.to.y + delta.y } });
+      event.currentTarget.style.cursor = 'move';
       return;
     }
     if (gesture.mode === 'pan') {
@@ -2981,7 +3135,7 @@ function CanvasStage({
         ...gesture,
         current: snapped.point,
         moved,
-        ...(target === undefined ? {} : { target }),
+        target,
       };
       setConnectorDragPreview({
         from: gesture.source.point,
@@ -3002,7 +3156,7 @@ function CanvasStage({
         ...gesture,
         current: snapped.point,
         moved,
-        ...(target === undefined ? {} : { target }),
+        target,
       };
       const moving = snapped.point;
       setConnectorDragPreview({
@@ -3165,7 +3319,7 @@ function CanvasStage({
       return;
     }
     const point = worldPoint(event, camera);
-    const next = selectAt(selection, items, point);
+    const next = selectAt(createSelectionState(), items, point, { descend: true });
     const id = next.selectedIds[0];
     if (id !== undefined) {
       onSelectionChange(next);
@@ -3220,7 +3374,7 @@ function CanvasStage({
             fontSize: clamp(18 * camera.zoom, 13, 28),
             fontFamily: typeof editNode.data.fontFamily === 'string'
               ? editNode.data.fontFamily
-              : 'Aptos Display, Segoe UI, sans-serif',
+              : 'IBM Plex Sans, sans-serif',
             fontWeight: typeof editNode.data.fontWeight === 'number' ? editNode.data.fontWeight : 700,
             fontStyle: editNode.data.fontStyle === 'italic' ? 'italic' : 'normal',
             textAlign: editNode.data.textAlign === 'center'
@@ -3241,7 +3395,7 @@ function CanvasStage({
             fontSize: clamp(18 * camera.zoom, 13, 24),
             fontFamily: typeof editNode?.data.fontFamily === 'string'
               ? editNode.data.fontFamily
-              : 'Aptos Display, Segoe UI, sans-serif',
+              : 'IBM Plex Sans, sans-serif',
             fontWeight: typeof editNode?.data.fontWeight === 'number' ? editNode.data.fontWeight : 700,
             fontStyle: editNode?.data.fontStyle === 'italic' ? 'italic' : 'normal',
             textAlign: editNode?.data.textAlign === 'center'
@@ -3328,43 +3482,8 @@ function Icon({ src, size = 18 }: { readonly src: string; readonly size?: number
 function OpenChartBrand() {
   return (
     <div className="oc-brand" role="img" aria-label="OpenChart">
-      <svg
-        className="oc-brand-symbol"
-        viewBox="0 0 32 32"
-        aria-hidden="true"
-        focusable="false"
-      >
-        <defs>
-          <linearGradient id="oc-brand-gradient" x1="6" y1="26" x2="27" y2="6" gradientUnits="userSpaceOnUse">
-            <stop offset="0" stopColor="#155EEF" />
-            <stop offset="1" stopColor="#00A7B7" />
-          </linearGradient>
-        </defs>
-        <path
-          className="oc-logo-arc"
-          d="M25.8 8.7A12 12 0 1 0 26.1 22.8"
-          fill="none"
-          stroke="url(#oc-brand-gradient)"
-          strokeWidth="2.6"
-          strokeLinecap="round"
-        />
-        <path
-          className="oc-logo-trend"
-          d="m8.3 21.5 5.2-5.4 4.1 3.1 7.2-8.1m-4.2 0h4.2v4.2"
-          fill="none"
-          stroke="url(#oc-brand-gradient)"
-          strokeWidth="2.35"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-        <circle className="oc-logo-node oc-logo-node-one" cx="8.3" cy="21.5" r="1.75" />
-        <circle className="oc-logo-node oc-logo-node-two" cx="13.5" cy="16.1" r="1.75" />
-        <circle className="oc-logo-node oc-logo-node-three" cx="17.6" cy="19.2" r="1.75" />
-        <circle className="oc-logo-node oc-logo-live" cx="24.8" cy="11.1" r="2" />
-      </svg>
-      <span className="oc-brand-wordmark" aria-hidden="true">
-        <span>Open</span><span className="oc-brand-chart">Chart</span>
-      </span>
+      <img className="oc-brand-symbol" src="/openchart.svg" width="28" height="28" alt="" aria-hidden="true" />
+      <span className="oc-brand-wordmark" aria-hidden="true">OpenChart</span>
     </div>
   );
 }
@@ -3380,12 +3499,17 @@ function ToolIcon({ kind }: { readonly kind: EditorTool }) {
 }
 
 function SceneThumbnail({ scene, label }: { readonly scene: SceneDescription; readonly label: string }) {
-  const src = useMemo(() => {
+  const [src, setSrc] = useState<string>();
+  useEffect(() => {
+    let cancelled = false;
     const previewScene: SceneDescription = { ...scene, items: scene.items.map((item) =>
       item.type === 'group' && item.role === 'artboard'
         ? { ...item, children: item.children.filter((child) => child.id !== 'artboard-header' && child.id !== 'flow-legend') }
         : item) };
-    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(renderSceneToSvg(previewScene))}`;
+    void renderPortableSvg(previewScene).then((svg) => {
+      if (!cancelled) setSrc(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`);
+    }).catch(() => { if (!cancelled) setSrc(undefined); });
+    return () => { cancelled = true; };
   }, [scene]);
   return <img className="oc-diagram-preview" src={src} alt={label} draggable={false} />;
 }
@@ -3673,9 +3797,14 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
   const selectedEdges = selectedEdgeIds.map((id) => document.edges[id]).filter((edge): edge is Edge => edge !== undefined);
   const selectedNode = selection.selectedIds.length === 1 ? selectedNodes[0] : undefined;
   const selectedEdge = selection.selectedIds.length === 1 ? selectedEdges[0] : undefined;
+  const selectedLine = scene.connectors?.find((line) => line.edgeId === selectedEdge?.id);
+  const lineFrom = selectedLine?.points[0];
+  const lineTo = selectedLine?.points.at(-1);
+  const lineAngle = lineFrom && lineTo
+    ? (Math.atan2(lineTo.y - lineFrom.y, lineTo.x - lineFrom.x) * 180 / Math.PI + 360) % 360 : 0;
   const selectedNodeInspector = selectedNode ?? (selectedEdges.length === 0 ? selectedNodes[0] : undefined);
   const selectedEdgeInspector = selectedEdge ?? (selectedNodes.length === 0 ? selectedEdges[0] : undefined);
-  const selectedTextData = selectedNodeInspector?.data ?? selectedEdgeInspector?.data;
+  const selectedTextData = selectedNodeInspector?.data ?? (selectedEdgeInspector?.label.trim() ? selectedEdgeInspector.data : undefined);
   const nodeDataMixed = (field: string): boolean =>
     selectedNodes.length > 1 && selectedNodes.some((node) => node.data[field] !== selectedNodes[0]?.data[field]);
   const edgeDataMixed = (field: string): boolean =>
@@ -4148,6 +4277,33 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
     ],
   );
 
+  const addLine = (arrow: boolean): void => {
+    if (activePage === undefined || activeLayerId === undefined || document.layers[activeLayerId]?.locked) return;
+    const styleId = Object.values(document.styles).find((style) => style.role.toLowerCase().includes('flow'))?.id;
+    if (styleId === undefined) return;
+    const edgeId = nextMapId(document.edges, 'edge.line');
+    const x = camera.x + viewport.width / camera.zoom / 2 - 120;
+    const y = camera.y + viewport.height / camera.zoom / 2;
+    const ops: Operation[] = [];
+    const portIds: string[] = [];
+    for (const [index, endpoint] of ['from', 'to'].entries()) {
+      const nodeId = nextMapId(document.nodes, `node.${edgeId}.${endpoint}`);
+      const portId = nextMapId(document.ports, `port.${edgeId}.${endpoint}`);
+      portIds.push(portId);
+      ops.push({ op: 'create_node', node: { id: nodeId, uid: makeUid(), kind: CONNECTOR_ANCHOR_KIND,
+        label: '', pageId: activePage.id, layerId: activeLayerId, styleId, data: { connectorAnchor: true } } },
+        { op: 'set_node_layout', id: nodeId, layout: { x: x + index * 240, y, width: CONNECTOR_ANCHOR_SIZE, height: CONNECTOR_ANCHOR_SIZE, pinned: true } },
+        { op: 'create_port', port: { id: portId, uid: makeUid(), nodeId, direction: index === 0 ? 'out' : 'in', side: 'auto' } });
+    }
+    ops.push({ op: 'create_edge', edge: { id: edgeId, uid: makeUid(), pageId: activePage.id, layerId: activeLayerId,
+      fromPortId: portIds[0]!, toPortId: portIds[1]!, label: '', semantic: 'Request', styleId,
+      routing: { mode: 'straight', endMarker: arrow ? 'arrow' : 'none', lineWidth: 2, lineStyle: 'solid' },
+      data: { showSemanticLabel: false } } });
+    commit({ txId: nextTransactionId('add-line'), actor: 'user', origin: 'gui', baseRev: document.rev, ops },
+      arrow ? 'Arrow added' : 'Line added', { scopeId: null, selectedIds: [edgeId] });
+    setTool('select'); setInspectorTab('design'); setInspectorOpen(true);
+  };
+
   const createConnectedNode = useCallback(
     (
       fromNodeId: string,
@@ -4285,6 +4441,34 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
     [commit, liveSession, nextTransactionId, selection.scopeId],
   );
 
+  const setLineAngle = (angle: number): void => {
+    if (!selectedEdge || !lineFrom || !lineTo) return;
+    const tx = setLineAngleTransaction(document, { txId: nextTransactionId('line-angle'),
+      edgeId: selectedEdge.id, angle, from: lineFrom, to: lineTo });
+    if (tx) commit(tx, 'Line angle updated');
+  };
+
+  const moveEdge = (edgeId: string, delta: InteractionPoint): void => {
+    if (Math.hypot(delta.x, delta.y) < 1 || document.layers[document.edges[edgeId]?.layerId ?? '']?.locked !== false) return;
+    const geometry = scene.connectors?.find((edge) => edge.edgeId === edgeId);
+    if (geometry === undefined) return;
+    const scratch = new OperationEngine(document);
+    const ops: Operation[] = [];
+    for (const endpoint of ['from', 'to'] as const) {
+      const original = endpoint === 'from' ? geometry.points[0]! : geometry.points.at(-1)!;
+      const tx = detachEdgeEndpointTransaction(scratch.document, { txId: `move.${endpoint}`, edgeId, endpoint,
+        point: { x: original.x + delta.x, y: original.y + delta.y } });
+      if (tx === undefined || !scratch.apply(tx).ok) return;
+      ops.push(...tx.ops);
+    }
+    const layout = document.layout.edgeOverrides?.[edgeId];
+    if (layout?.waypoints !== undefined) ops.push({ op: 'set_edge_layout', id: edgeId, layout: {
+      ...layout, waypoints: layout.waypoints.map((point) => ({ x: point.x + delta.x, y: point.y + delta.y })),
+    } });
+    commit({ txId: nextTransactionId('move-line'), actor: 'user', origin: 'gui', baseRev: document.rev, ops }, 'Line moved',
+      { scopeId: null, selectedIds: [edgeId] });
+  };
+
   const detachEdgeEndpoint = useCallback(
     (edgeId: string, endpoint: 'from' | 'to', point: InteractionPoint) => {
       const currentDocument = liveSession.document;
@@ -4332,10 +4516,13 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
       });
       commit(
         paste.envelope,
-        `Pasted ${paste.pastedNodeIds.length} object${paste.pastedNodeIds.length === 1 ? '' : 's'}`,
+        `Pasted ${paste.envelope.ops.filter((op) => op.op === 'create_edge' || (op.op === 'create_node' && op.node.data.connectorAnchor !== true)).length} assets`,
         {
-          scopeId: selection.scopeId,
-          selectedIds: paste.pastedRootNodeIds,
+          scopeId: null,
+          selectedIds: [
+            ...paste.pastedRootNodeIds.filter((id) => !paste.envelope.ops.some((op) => op.op === 'create_node' && op.node.id === id && op.node.data.connectorAnchor === true)),
+            ...paste.envelope.ops.flatMap((op) => op.op === 'create_edge' ? [op.edge.id] : []),
+          ],
         },
       );
     },
@@ -4612,14 +4799,13 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
           <span>Font</span>
           <select
             aria-label="Inspector font family"
-            value={typeof data.fontFamily === 'string' ? data.fontFamily : 'Aptos Display, Segoe UI, sans-serif'}
+            value={typeof data.fontFamily === 'string' ? data.fontFamily : 'IBM Plex Sans, sans-serif'}
             onChange={(event) => updateTextStyle('fontFamily', event.currentTarget.value)}
           >
-            <option value="Aptos Display, Segoe UI, sans-serif">Aptos</option>
-            <option value="Segoe UI, Arial, sans-serif">Segoe UI</option>
+            <option value="IBM Plex Sans, sans-serif">IBM Plex Sans</option>
             <option value="Arial, sans-serif">Arial</option>
             <option value="Georgia, serif">Georgia</option>
-            <option value="Cascadia Code, Consolas, monospace">Cascadia Code</option>
+            <option value="IBM Plex Mono, monospace">IBM Plex Mono</option>
             <option value="Consolas, monospace">Consolas</option>
           </select>
           {mixed('fontFamily') ? <small className="oc-mixed-note">Mixed</small> : null}
@@ -5191,30 +5377,11 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
           return;
         case 'copy':
           {
-            const nodeIds = selection.selectedIds.filter((id) => document.nodes[id] !== undefined);
+            const nodeIds = selection.selectedIds.filter((id) => document.nodes[id] !== undefined || document.edges[id] !== undefined);
             if (nodeIds.length > 0) {
-              setClipboard(createClipboardPayload(document, nodeIds, frames));
+              setClipboard(createAssetClipboardPayload(document, nodeIds, frames, scene.connectors ?? []));
               setStatus(`Copied ${nodeIds.length} object${nodeIds.length === 1 ? '' : 's'}`);
             }
-          }
-          return;
-        case 'cut':
-          {
-            const nodeIds = selection.selectedIds.filter((id) => document.nodes[id] !== undefined);
-            if (nodeIds.length > 0) {
-              setClipboard(createClipboardPayload(document, nodeIds, frames));
-              commit(
-              {
-                txId: nextTransactionId('cut'),
-                actor: 'user',
-                origin: 'gui',
-                baseRev: document.rev,
-                ops: nodeIds.map((id) => ({ op: 'delete_node', id })),
-              },
-              'Cut selection',
-              clearSelection(selection),
-            );
-          }
           }
           return;
         case 'paste':
@@ -5223,6 +5390,7 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
         case 'paste-in-place':
           pasteClipboard({ x: 0, y: 0 });
           return;
+        case 'cut':
         case 'delete-selection': {
           const edgeIds = selection.selectedIds.filter((id) => document.edges[id] !== undefined);
           const nodeIds = selection.selectedIds.filter((id) => document.nodes[id] !== undefined);
@@ -5230,15 +5398,18 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
             setStatus('Nothing selected to delete');
             return;
           }
+          if (commandId === 'cut') {
+            setClipboard(createAssetClipboardPayload(document, [...nodeIds, ...edgeIds], frames, scene.connectors ?? []));
+          }
           commit(
             {
-              txId: nextTransactionId('delete-selection'),
+              txId: nextTransactionId(commandId),
               actor: 'user',
               origin: 'gui',
               baseRev: document.rev,
               ops: [...edgeIds.map((id) => ({ op: 'delete_edge' as const, id })), ...nodeIds.map((id) => ({ op: 'delete_node' as const, id }))],
             },
-            `Deleted ${edgeIds.length + nodeIds.length} object${edgeIds.length + nodeIds.length === 1 ? '' : 's'}`,
+            commandId === 'cut' ? 'Cut selection' : `Deleted ${edgeIds.length + nodeIds.length} object${edgeIds.length + nodeIds.length === 1 ? '' : 's'}`,
             clearSelection(selection),
           );
           return;
@@ -5689,6 +5860,8 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
       ) {
         return;
       }
+      // Native clipboard events handle these commands and populate the system clipboard.
+      if (command.id === 'copy' || command.id === 'cut' || command.id === 'paste') return;
       event.preventDefault();
       commandDispatcher.current(command.id);
     };
@@ -6138,7 +6311,7 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
       const catalog = documentUsesDecorativeShapes(document) ? await loadFullShapeCatalog() : undefined;
       const exportScene = buildSceneDescription(document, { pageId: activePageId,
         ...(catalog === undefined ? {} : { shapeResolver: catalog.resolveLibraryShape }) });
-      const svg = renderSceneToSvg(exportScene);
+      const svg = await renderPortableSvg(exportScene);
       if (format === 'pdf' || format === 'pptx') {
         const { exportOfficeBlob } = await import('@openchart/serialize/browser-export');
         const fallback = format === 'pptx'
@@ -6165,9 +6338,9 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
     }
   };
 
-  const printDiagram = (): void => {
+  const printDiagram = async (): Promise<void> => {
     try {
-      printScene(scene);
+      await printScene(scene);
       setStatus('Print preview opened');
       setOutputOpen(false);
     } catch (error: unknown) {
@@ -6237,7 +6410,30 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
         : 'Saved to downloads';
 
   return (
-    <main className={`oc-app${inspectorOpen ? ' oc-inspector-open' : ''}`} aria-label="OpenChart diagram editor">
+    <main className={`oc-app${inspectorOpen ? ' oc-inspector-open' : ''}`} aria-label="OpenChart diagram editor"
+      onCopy={(event) => {
+        if (event.target instanceof HTMLElement && event.target.closest('input, textarea, [contenteditable="true"]')) return;
+        const ids = selection.selectedIds.filter((id) => document.nodes[id] !== undefined || document.edges[id] !== undefined);
+        if (ids.length === 0) return;
+        const payload = createAssetClipboardPayload(document, ids, frames, scene.connectors ?? []);
+        event.preventDefault();
+        event.clipboardData.setData('text/plain', JSON.stringify(payload));
+        setClipboard(payload); setStatus(`Copied ${ids.length} objects`);
+      }}
+      onCut={(event) => {
+        if (event.target instanceof HTMLElement && event.target.closest('input, textarea, [contenteditable="true"]')) return;
+        const ids = selection.selectedIds.filter((id) => document.nodes[id] !== undefined || document.edges[id] !== undefined);
+        if (ids.length === 0) return;
+        event.preventDefault();
+        event.clipboardData.setData('text/plain', JSON.stringify(createAssetClipboardPayload(document, ids, frames, scene.connectors ?? [])));
+        executeCommand('cut');
+      }}
+      onPaste={(event) => {
+        if (event.target instanceof HTMLElement && event.target.closest('input, textarea, [contenteditable="true"]')) return;
+        if (clipboard === null) return;
+        event.preventDefault(); pasteClipboard({ x: 24, y: 24 });
+      }}>
+
       <header className="oc-topbar">
         <OpenChartBrand />
         <div className="oc-document-title">
@@ -6307,11 +6503,14 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
               key={candidate}
               aria-pressed={tool === candidate}
               onClick={() => setTool(candidate)}
-              title={`${candidate[0]?.toUpperCase() ?? ''}${candidate.slice(1)} tool`}
+              title={candidate === 'connector' ? 'Connect: click connection points on two shapes' : `${candidate[0]?.toUpperCase() ?? ''}${candidate.slice(1)} tool`}
+              style={candidate === 'connector' ? { display: 'inline-flex', alignItems: 'center', width: 'auto', padding: '0 10px', gap: 6 } : undefined}
             >
-              <ToolIcon kind={candidate} />
+              <ToolIcon kind={candidate} />{candidate === 'connector' ? 'Connect' : null}
             </button>
           ))}
+          <button type="button" className="oc-format-trigger" onClick={() => addLine(false)}>Line</button>
+          <button type="button" className="oc-format-trigger" onClick={() => addLine(true)}>Arrow</button>
           {selectedTextData !== undefined ? <button type="button" popoverTarget="oc-text-format" className="oc-format-trigger">Text style</button> : null}
           <div id="oc-text-format" popover="auto" className="oc-toolbar-popup" aria-label="Text formatting">
             <label className="oc-font-size-select">
@@ -6334,16 +6533,13 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
                 disabled={selectedTextData === undefined}
                 value={typeof selectedTextData?.fontFamily === 'string'
                   ? selectedTextData.fontFamily
-                  : selectedEdge === undefined
-                    ? 'Aptos Display, Segoe UI, sans-serif'
-                    : 'Segoe UI, Arial, sans-serif'}
+                  : 'IBM Plex Sans, sans-serif'}
                 onChange={(event) => updateTextStyle('fontFamily', event.currentTarget.value)}
               >
-                <option value="Aptos Display, Segoe UI, sans-serif">Aptos</option>
-                <option value="Segoe UI, Arial, sans-serif">Segoe UI</option>
+                <option value="IBM Plex Sans, sans-serif">IBM Plex Sans</option>
                 <option value="Arial, sans-serif">Arial</option>
                 <option value="Georgia, serif">Georgia</option>
-                <option value="Cascadia Code, Consolas, monospace">Cascadia Code</option>
+                <option value="IBM Plex Mono, monospace">IBM Plex Mono</option>
                 <option value="Consolas, monospace">Consolas</option>
               </select>
             </label>
@@ -6421,6 +6617,14 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
               </select>
             </label>
           </div>
+          {selection.scopeId !== null ? <button type="button" className="oc-format-trigger" onClick={() => {
+            const parent = document.nodes[selection.scopeId!];
+            if (parent !== undefined) setSelection({ scopeId: parent.parentId ?? null, selectedIds: [parent.id] });
+          }}>Select container</button> : null}
+          {selectedNodes.length > 1 ? <button type="button" className="oc-format-trigger" onClick={() => executeCommand('group')}>Group</button> : null}
+          {selectedNodes.some((node) => node.group !== undefined) ? <button type="button" className="oc-format-trigger" onClick={() => executeCommand('ungroup')}>Ungroup</button> : null}
+          <button type="button" className="oc-format-trigger" disabled={selectedNodes.length === 0 && selectedEdges.length === 0} onClick={() => executeCommand('copy')}>Copy</button>
+          <button type="button" className="oc-format-trigger" disabled={clipboard === null} onClick={() => executeCommand('paste')}>Paste</button>
           <span className="oc-toolbar-divider" />
           <button type="button" onClick={() => executeCommand('undo')} title="Undo (Ctrl+Z)"><Icon src={arrowCounterClockwiseIcon} size={17} /></button>
           <button type="button" onClick={() => executeCommand('redo')} title="Redo (Ctrl+Y)"><Icon src={arrowClockwiseIcon} size={17} /></button>
@@ -6486,6 +6690,8 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
           </button>
         </div>
       </nav>
+
+
 
       <nav className="oc-primary-rail" aria-label="Editor panels">
         <button type="button" className="is-active" title="Shapes panel" aria-pressed="true"><Icon src={shapesIcon} /></button>
@@ -6732,7 +6938,10 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
           }}
           onCameraChange={setCamera}
           onViewportChange={setViewport}
-          onSelectionChange={setSelection}
+          onSelectionChange={(next) => {
+            setSelection(next);
+            if (next.selectedIds.length > 0) { setInspectorTab('design'); setInspectorOpen(true); }
+          }}
           onPreviewChange={setPreview}
           onTransformCommit={commitTransform}
           onCreateConnector={createConnector}
@@ -6746,6 +6955,7 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
           onDetachEdgeEndpoint={detachEdgeEndpoint}
           onAddEdgeWaypoint={addEdgeWaypoint}
           onEdgeWaypointCommit={commitEdgeWaypoint}
+          onMoveEdge={moveEdge}
           onEdgeSegmentCommit={commitEdgeSegment}
           onBeginTextEdit={beginTextEdit}
           onBeginEdgeLabelEdit={beginEdgeLabelEdit}
@@ -6855,7 +7065,7 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
           <div className="oc-inspector-body">
             <div className="oc-selection-summary"><span>CONNECTORS</span><strong>{selectedEdges.length} selected</strong><small>Formatting applies to every selected connector.</small></div>
             {renderConnectorAppearanceControls(selectedEdgeInspector)}
-            {renderTextFormattingControls(selectedEdgeInspector.data, edgeDataMixed)}
+            {selectedEdgeInspector.label.trim() ? renderTextFormattingControls(selectedEdgeInspector.data, edgeDataMixed) : null}
           </div>
         ) : selectedNodes.length > 1 && selectedEdges.length === 0 && selectedNodeInspector !== undefined ? (
           <div className="oc-inspector-body">
@@ -6907,7 +7117,7 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
                 }}
               />
             </label>
-            {renderTextFormattingControls(selectedEdge.data, edgeDataMixed)}
+            {selectedEdge.label.trim() ? renderTextFormattingControls(selectedEdge.data, edgeDataMixed) : null}
             <div className="oc-style-panel-section">
               <div className="oc-section-title">Appearance</div>
               <ColorControl label="Line" value={selectedEdgeStrokeColor} mixed={edgeDataMixed('strokeColor')}
@@ -6926,7 +7136,7 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
                     node.pageId === selectedEdge.pageId &&
                     node.container === undefined &&
                     node.group === undefined &&
-                    !isConnectorAnchorNode(node),
+                    !isConnectorAnchor(node),
                   )
                   .sort((left, right) => compareIds(left.id, right.id))
                   .map((node) => <option value={node.id} key={node.id}>{node.label}</option>)}
@@ -6944,7 +7154,7 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
                     node.pageId === selectedEdge.pageId &&
                     node.container === undefined &&
                     node.group === undefined &&
-                    !isConnectorAnchorNode(node),
+                    !isConnectorAnchor(node),
                   )
                   .sort((left, right) => compareIds(left.id, right.id))
                   .map((node) => <option value={node.id} key={node.id}>{node.label}</option>)}
@@ -6972,6 +7182,24 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
                 <option value="straight">Straight</option>
               </select>
             </label>
+            {selectedEdge.routing?.mode === 'straight' && lineFrom && lineTo && <>
+              <label className="oc-field oc-field-wide">
+                <span title="Degrees clockwise from right">Angle (°)</span>
+                <input aria-label="Line angle" type="number" step="1"
+                  key={`${selectedEdge.id}-angle-${document.rev}`}
+                  defaultValue={Math.round(lineAngle * 100) / 100}
+                  onBlur={(event) => {
+                    const value = event.currentTarget.valueAsNumber;
+                    if (Number.isFinite(value) && Math.abs(value - Math.round(lineAngle * 100) / 100) > 0.001) setLineAngle(value);
+                  }}
+                  onKeyDown={(event) => { if (event.key === 'Enter') event.currentTarget.blur(); }} />
+              </label>
+              <div className="oc-inspector-actions">
+                <button type="button" onClick={() => setLineAngle(Math.cos(lineAngle * Math.PI / 180) < 0 ? 180 : 0)}>Horizontal</button>
+                <button type="button" onClick={() => setLineAngle(Math.sin(lineAngle * Math.PI / 180) < 0 ? 270 : 90)}>Vertical</button>
+                <small>Keeps the start and length; detaches shape connections.</small>
+              </div>
+            </>}
             <label className="oc-field oc-field-wide">
               <span>Corner radius</span>
               <input
@@ -7175,7 +7403,9 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
               <strong>{selectedEdge.routing?.avoidObstacles === true ? 'ON' : 'OFF'}</strong>
             </button>
             <p className="oc-connector-help">
-              Double-click the line to add a waypoint, then drag its amber handle.
+              Click a + on any segment to add a bend point, then drag its amber handle.
+              Shift-drag an orthogonal segment to offset it. Obstacle avoidance plus Re-route
+              creates automatic detours around shapes.
             </p>
             <div className="oc-inspector-actions">
               <button type="button" onClick={() => executeCommand('reroute-selection')}>
@@ -7439,7 +7669,7 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
             <div className="oc-modal-actions">
               <button type="button" onClick={() => { setOutputOpen(false); setTemplateOpen(true); }}>Templates</button>
               <button type="button" onClick={() => { setOutputOpen(false); setPreferencesOpen(true); }}>Preferences</button>
-              <button type="button" onClick={printDiagram}>Print</button>
+              <button type="button" onClick={() => void printDiagram()}>Print</button>
               <button type="button" className="is-primary" disabled={exportBusy} onClick={() => void exportDiagram()}>
                 {exportBusy ? 'Exporting…' : `Download ${preferences.exportFormat.toUpperCase()}`}
               </button>

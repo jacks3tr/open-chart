@@ -1,7 +1,63 @@
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("../../scene/fonts/IBMPlexSans-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("../../scene/fonts/IBMPlexSans-Medium.ttf") format("truetype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("../../scene/fonts/IBMPlexSans-SemiBold.ttf") format("truetype");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("../../scene/fonts/IBMPlexSans-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("../../scene/fonts/IBMPlexSans-Italic.ttf") format("truetype");
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("../../scene/fonts/IBMPlexSans-BoldItalic.ttf") format("truetype");
+  font-weight: 700;
+  font-style: italic;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("../../scene/fonts/IBMPlexMono-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   color: #202124;
   background: #f5f6f7;
-  font-family: "Segoe UI Variable", "Segoe UI", Arial, sans-serif;
+  font-family: "IBM Plex Sans", sans-serif;
   font-synthesis: none;
   text-rendering: geometricPrecision;
   --surface: #ffffff;
@@ -88,76 +144,28 @@ button.is-active .oc-icon { opacity: 1; }
 }
 
 .oc-brand {
-  --oc-brand-ink: var(--text);
   height: 100%;
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 11px 0 7px;
-  color: var(--oc-brand-ink);
+  gap: 8px;
+  padding: 0 14px 0 10px;
+  color: var(--text);
   white-space: nowrap;
 }
 
 .oc-brand-symbol {
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   display: block;
-  flex: 0 0 26px;
-  overflow: visible;
-}
-
-.oc-logo-arc {
-  stroke-dasharray: 70;
-  stroke-dashoffset: 70;
-  animation: oc-logo-draw 760ms cubic-bezier(.22, 1, .36, 1) 40ms both;
-}
-
-.oc-logo-trend {
-  stroke-dasharray: 36;
-  stroke-dashoffset: 36;
-  animation: oc-logo-draw 560ms cubic-bezier(.22, 1, .36, 1) 300ms both;
-}
-
-.oc-logo-node {
-  fill: var(--oc-brand-ink);
-  opacity: 0;
-  transform: scale(.25);
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: oc-logo-node-in 340ms cubic-bezier(.34, 1.56, .64, 1) both;
-}
-
-.oc-logo-node-one { animation-delay: 450ms; }
-.oc-logo-node-two { animation-delay: 530ms; }
-.oc-logo-node-three { animation-delay: 610ms; }
-.oc-logo-live {
-  fill: #00a7b7;
-  animation:
-    oc-logo-node-in 340ms cubic-bezier(.34, 1.56, .64, 1) 690ms both,
-    oc-logo-live 3.6s ease-in-out 1.4s infinite;
+  flex: 0 0 28px;
 }
 
 .oc-brand-wordmark {
-  display: inline-flex;
-  align-items: baseline;
-  color: var(--oc-brand-ink);
-  font-family: "Bahnschrift", "Segoe UI Variable Display", "Segoe UI Variable", "Segoe UI", sans-serif;
-  font-size: 14.5px;
-  font-stretch: semi-condensed;
-  font-variation-settings: "wght" 620, "wdth" 92;
-  font-weight: 620;
+  font-family: "IBM Plex Sans", sans-serif;
+  font-size: 16px;
+  font-weight: 700;
   letter-spacing: -.035em;
   line-height: 1;
-  text-rendering: geometricPrecision;
-  opacity: 0;
-  transform: translateX(-3px);
-  animation: oc-wordmark-in 480ms cubic-bezier(.22, 1, .36, 1) 420ms both;
-}
-
-.oc-brand-chart {
-  color: var(--blue-strong);
-  font-variation-settings: "wght" 760, "wdth" 92;
-  font-weight: 760;
 }
 
 .oc-document-title {
@@ -182,7 +190,7 @@ button.is-active .oc-icon { opacity: 1; }
   color: var(--text);
   font-family: inherit;
   font-size: 13px;
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .oc-document-title input:hover { border-color: var(--border); }
@@ -364,7 +372,7 @@ button.is-active .oc-icon { opacity: 1; }
   border-color: #a9c9ee;
   background: var(--blue-soft);
   color: #0c5cad;
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .oc-compose-bar .oc-beauty-button:hover:not(:disabled) {
@@ -764,7 +772,7 @@ button.is-active .oc-icon { opacity: 1; }
   border-radius: 3px;
   background: rgba(255, 255, 255, .92);
   color: #77808a;
-  font: 600 9px/1 "Segoe UI", sans-serif;
+  font: 600 9px/1 "IBM Plex Sans", sans-serif;
   pointer-events: none;
 }
 
@@ -777,7 +785,7 @@ button.is-active .oc-icon { opacity: 1; }
   border-radius: 3px;
   background: rgba(255, 255, 255, .98);
   color: var(--text);
-  font-weight: 650;
+  font-weight: 600;
   line-height: 1.25;
   box-shadow: 0 8px 24px rgba(30, 41, 59, .18);
 }
@@ -862,7 +870,7 @@ button.is-active .oc-icon { opacity: 1; }
 .oc-inspector-tabs button.is-active {
   border-bottom-color: var(--blue);
   color: var(--text);
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .oc-inspector-body {
@@ -892,7 +900,7 @@ button.is-active .oc-icon { opacity: 1; }
   border-radius: 3px;
   background: #f7f8f9;
   color: #535b65;
-  font: 600 9px "Segoe UI", sans-serif;
+  font: 600 9px "IBM Plex Sans", sans-serif;
 }
 
 .oc-empty-inspector span:last-child { margin-top: 6px; font-size: 9px; }
@@ -911,7 +919,7 @@ button.is-active .oc-icon { opacity: 1; }
 .oc-section-title {
   color: #747c86;
   font-size: 9px;
-  font-weight: 650;
+  font-weight: 600;
   letter-spacing: .07em;
   text-transform: uppercase;
 }
@@ -921,7 +929,7 @@ button.is-active .oc-icon { opacity: 1; }
 .oc-selection-summary small {
   overflow: hidden;
   color: #9299a1;
-  font: 9px Consolas, monospace;
+  font: 9px "IBM Plex Mono", monospace;
   text-overflow: ellipsis;
 }
 
@@ -941,7 +949,7 @@ button.is-active .oc-icon { opacity: 1; }
   justify-content: space-between;
   color: #747c86;
   font-size: 9px;
-  font-weight: 650;
+  font-weight: 600;
   letter-spacing: .04em;
 }
 
@@ -949,7 +957,7 @@ button.is-active .oc-icon { opacity: 1; }
 .oc-mixed-note {
   color: #8a6d1f;
   font-size: 8px;
-  font-weight: 650;
+  font-weight: 600;
   letter-spacing: .03em;
   text-transform: uppercase;
 }
@@ -982,7 +990,7 @@ button.is-active .oc-icon { opacity: 1; }
   border: 0;
   background: transparent;
   color: var(--text);
-  font: 600 10px Consolas, monospace;
+  font: 600 10px "IBM Plex Mono", monospace;
   text-transform: uppercase;
 }
 
@@ -1159,7 +1167,7 @@ button.is-active .oc-icon { opacity: 1; }
 .oc-wide-button.is-active { border-color: #9fc1e7; background: var(--blue-soft); color: #155da7; }
 .oc-inspector-actions button.is-danger { border-color: #e2b9be; color: var(--danger); }
 .oc-connector-help { margin: 10px 0 0; color: var(--text-muted); font-size: 9px; line-height: 1.45; }
-kbd { font: 600 9px Consolas, monospace; }
+kbd { font: 600 9px "IBM Plex Mono", monospace; }
 
 .oc-panel-heading {
   display: flex;
@@ -1168,7 +1176,7 @@ kbd { font: 600 9px Consolas, monospace; }
   margin-bottom: 10px;
   color: var(--text);
   font-size: 11px;
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .oc-layer-list { display: grid; gap: 4px; }
@@ -1241,7 +1249,7 @@ kbd { font: 600 9px Consolas, monospace; }
   border-right: 1px solid #edf0f2;
   background: transparent;
   color: #646c76;
-  font-size: 9px;
+  font-size: 11px;
   cursor: pointer;
   white-space: nowrap;
 }
@@ -1252,7 +1260,7 @@ kbd { font: 600 9px Consolas, monospace; }
   background: #fafbfd;
   color: var(--text);
   box-shadow: inset 0 2px 0 var(--blue);
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .oc-page-tabs .oc-add-page,
@@ -1310,7 +1318,7 @@ kbd { font: 600 9px Consolas, monospace; }
   margin-bottom: 9px;
   color: var(--text-muted);
   font-size: 9px;
-  font-weight: 650;
+  font-weight: 600;
   letter-spacing: .08em;
 }
 
@@ -1623,7 +1631,7 @@ kbd { font: 600 9px Consolas, monospace; }
   padding: 0 18px 16px;
   color: var(--text-muted);
   font-size: 9px;
-  font-weight: 650;
+  font-weight: 600;
   letter-spacing: .05em;
   text-transform: uppercase;
 }
@@ -1812,15 +1820,6 @@ kbd { font: 600 9px Consolas, monospace; }
 
 @keyframes oc-fade-in { from { opacity: 0; } }
 @keyframes oc-rise-in { from { opacity: 0; transform: translateY(-6px) scale(.995); } }
-@keyframes oc-logo-draw { to { stroke-dashoffset: 0; } }
-@keyframes oc-logo-node-in { to { opacity: 1; transform: scale(1); } }
-@keyframes oc-logo-live {
-  0%, 68%, 100% { opacity: 1; transform: scale(1); }
-  78% { opacity: .58; transform: scale(.72); }
-  88% { opacity: 1; transform: scale(1.12); }
-}
-@keyframes oc-wordmark-in { to { opacity: 1; transform: translateX(0); } }
-
 @media (max-width: 1120px) {
   .oc-app { grid-template-columns: 36px 196px minmax(280px, 1fr) 0; }
   .oc-app.oc-inspector-open { grid-template-columns: 36px 196px minmax(280px, 1fr) 244px; }
@@ -1853,17 +1852,6 @@ kbd { font: 600 9px Consolas, monospace; }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .oc-logo-arc,
-  .oc-logo-trend {
-    stroke-dashoffset: 0;
-  }
-
-  .oc-logo-node,
-  .oc-brand-wordmark {
-    opacity: 1;
-    transform: none;
-  }
-
   *,
   *::before,
   *::after {

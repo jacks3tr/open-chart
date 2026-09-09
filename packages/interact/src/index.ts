@@ -33,6 +33,7 @@ export interface SelectionState {
 
 export interface PointSelectionOptions {
   readonly toggle?: boolean;
+  readonly descend?: boolean;
 }
 
 export interface TransformFrame extends InteractionRect {
@@ -309,6 +310,10 @@ export function selectAt(
       current.add(hit.id);
     }
     return stateWithSelection(state, eligible, current);
+  }
+  if (options.descend === true && (hit.kind === 'container' || hit.kind === 'group')) {
+    const child = selectAt({ scopeId: hit.id, selectedIds: [] }, items, point, options);
+    if (child.selectedIds.length > 0) return child;
   }
   return stateWithSelection(state, eligible, new Set([hit.id]));
 }

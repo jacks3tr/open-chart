@@ -1,5 +1,6 @@
 import type {
   Edge,
+  EdgeLayoutOverride,
   Node,
   OpenChartDocument,
   Port,
@@ -15,6 +16,7 @@ export interface ClipboardFrame {
   readonly width: number;
   readonly height: number;
   readonly rotation?: number;
+  readonly zIndex?: number;
 }
 
 export interface ClipboardPayload {
@@ -24,6 +26,7 @@ export interface ClipboardPayload {
   readonly ports: Readonly<Record<string, Port>>;
   readonly edges: Readonly<Record<string, Edge>>;
   readonly frames: Readonly<Record<string, ClipboardFrame>>;
+  readonly edgeLayouts?: Readonly<Record<string, EdgeLayoutOverride>>;
 }
 
 export interface PasteOptions {
@@ -132,7 +135,7 @@ export function createClipboardPayload(
       delete copied.parentId;
     }
     nodes[id] = copied;
-    clipboardFrames[id] = { ...requireFrame(frames, id) };
+    clipboardFrames[id] = { ...requireFrame(frames, id), zIndex: document.layout.overrides[id]?.zIndex ?? 0 };
   }
 
   const ports: Record<string, Port> = {};
@@ -164,6 +167,7 @@ export function createClipboardPayload(
     ports,
     edges,
     frames: clipboardFrames,
+    edgeLayouts: Object.fromEntries(Object.keys(edges).flatMap((id) => document.layout.edgeOverrides?.[id] === undefined ? [] : [[id, clone(document.layout.edgeOverrides[id])]])),
   };
 }
 
@@ -352,7 +356,10 @@ export function createPasteTransaction(
       },
     });
   }
-  for (const sourceId of nodeIds) {
+  const paintOrder = [...nodeIds].sort((left, right) =>
+    (payload.frames[left]?.zIndex ?? 0) - (payload.frames[right]?.zIndex ?? 0) || compareIds(left, right));
+  const topZ = Math.max(0, ...Object.values(document.layout.overrides).map((layout) => layout.zIndex ?? 0));
+  for (const [index, sourceId] of paintOrder.entries()) {
     const id = idMaps.node.get(sourceId);
     const frame = requireFrame(payload.frames, sourceId);
     if (id === undefined) {
@@ -368,8 +375,17 @@ export function createPasteTransaction(
         height: frame.height,
         ...(frame.rotation === undefined ? {} : { rotation: frame.rotation }),
         pinned: true,
+        zIndex: topZ + index + 1,
       },
     });
+  }
+  for (const [sourceId, layout] of Object.entries(payload.edgeLayouts ?? {})) {
+    const id = idMaps.edge.get(sourceId);
+    if (id === undefined) continue;
+    ops.push({ op: 'set_edge_layout', id, layout: {
+      ...clone(layout),
+      ...(layout.waypoints === undefined ? {} : { waypoints: layout.waypoints.map((point) => ({ x: point.x + options.offset.x, y: point.y + options.offset.y })) }),
+    } });
   }
   const pastedRootNodeIds = payload.rootNodeIds.map((sourceId) => {
     const id = idMaps.node.get(sourceId);

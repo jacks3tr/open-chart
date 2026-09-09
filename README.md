@@ -1,4 +1,4 @@
-# OpenChart
+# <img src="packages/app/public/openchart.svg" width="32" height="32" alt="" /> OpenChart
 
 **Architecture diagrams you own. Edit visually or through an agent, then export for your next presentation.**
 
@@ -11,9 +11,9 @@ and system-connectivity maps. The Windows app, CLI, and MCP interface share one
 JSON document model and one undoable operation engine. No accounts, cloud sync,
 or collaboration service. Your diagrams stay in files you control.
 
-![Order fulfillment template with an API gateway, transactional outbox, event queue, workers, and failure handling](docs/assets/order-fulfillment.png)
+![From thought to flow: an idea moves through planning, building, and refining](docs/assets/from-thought-to-flow.svg)
 
-*An editable starter template, exported directly from OpenChart.*
+*From thought to flow.*
 
 > **Early preview:** build from source with the instructions below. Windows is
 > the supported desktop platform. The browser editor is available for local
@@ -149,3 +149,6 @@ OpenChart is [MIT licensed](LICENSE). Native diagram symbols are original
 OpenChart vectors; cloud symbols are not official vendor icon reproductions.
 Simple Icons and Phosphor retain upstream provenance and license metadata in the
 catalog. Brand names and logos belong to their respective owners.
+
+The interface and starter diagrams use locally bundled IBM Plex Sans and Plex Mono,
+licensed under the [SIL Open Font License](packages/scene/fonts/OFL.txt).

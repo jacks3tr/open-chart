@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./bounds": "./src/bounds.ts"
+    "./bounds": "./src/bounds.ts",
+    "./fonts/*": "./fonts/*"
   },
   "dependencies": {
     "@openchart/connectors": "0.0.0",

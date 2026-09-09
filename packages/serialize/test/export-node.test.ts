@@ -38,6 +38,8 @@ describe('SceneDescription file export', () => {
           expect(artifact.data.toString('utf8')).toMatch(
             /^<svg data-openchart-schema-version="1" data-openchart-ir="[A-Za-z0-9_-]+" /);
           expect(artifact.embeddedIr).toBe(true);
+          expect(artifact.data.toString('utf8')).toContain("font-family:'IBM Plex Sans'");
+          expect(artifact.data.toString('utf8')).toContain('data:font/ttf;base64,');
           break;
         case 'png':
           expect(artifact.data.subarray(0, 8).toString('hex')).toBe('89504e470d0a1a0a');
@@ -50,6 +52,7 @@ describe('SceneDescription file export', () => {
           expect(artifact.data.subarray(0, 5).toString('ascii')).toBe('%PDF-');
           expect(artifact.data.includes(Buffer.from('/StructTreeRoot'))).toBe(true);
           expect(artifact.data.includes(Buffer.from('/Figure'))).toBe(true);
+          expect(artifact.data.toString('latin1')).toContain('IBMPlexSans');
           break;
         case 'pptx': {
           const presentation = await JSZip.loadAsync(artifact.data);

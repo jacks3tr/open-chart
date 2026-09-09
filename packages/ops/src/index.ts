@@ -1,3 +1,4 @@
+import { isConnectorAnchor } from '@openchart/ir';
 import {
   applyPatches,
   current,
@@ -501,7 +502,19 @@ function collision(document: Record<string, unknown>, id: string, path: string):
 }
 
 function deleteEdge(document: DocumentDraft, id: string): void {
+  const edge = document.edges[id];
+  const endpoints = edge === undefined ? [] : [edge.fromPortId, edge.toPortId]
+    .map((portId) => document.ports[portId]?.nodeId);
   delete document.edges[id];
+  for (const nodeId of endpoints) {
+    if (nodeId === undefined || !isConnectorAnchor(document.nodes[nodeId])) continue;
+    const portIds = Object.values(document.ports).filter((port) => port.nodeId === nodeId).map((port) => port.id);
+    if (Object.values(document.edges).some((other) => portIds.includes(other.fromPortId) || portIds.includes(other.toPortId))) continue;
+    for (const portId of portIds) delete document.ports[portId];
+    delete document.nodes[nodeId];
+    delete document.layout.overrides[nodeId];
+    if (document.layout.derived !== null) delete document.layout.derived[nodeId];
+  }
   if (document.layout.edgeOverrides !== undefined) {
     delete document.layout.edgeOverrides[id];
   }

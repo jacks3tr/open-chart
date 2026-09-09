@@ -1,5 +1,5 @@
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 
 import { renderAsync, type RenderedImage } from '@resvg/resvg-js';
 import { encode as encodeJpeg } from 'jpeg-js';
@@ -17,6 +17,11 @@ import {
 import { resolveLibraryShape } from '@openchart/shapes/libraries';
 
 import { renderSceneToSvg } from './index.js';
+import { BUNDLED_FONTS, embedSvgFonts, plexPdfFont } from './fonts.js';
+
+const fontPaths = BUNDLED_FONTS.map((font) => fileURLToPath(import.meta.resolve(`@openchart/scene/fonts/${font.file}`)));
+let fontBase64: Promise<readonly string[]> | undefined;
+let fontLicense: Promise<string> | undefined;
 
 export const DOCUMENT_EXPORT_FORMATS = ['svg', 'png', 'jpeg', 'pdf', 'pptx'] as const;
 export type DocumentExportFormat = (typeof DOCUMENT_EXPORT_FORMATS)[number];
@@ -256,8 +261,10 @@ async function rasterize(svg: string, scale: number, region: SceneRect): Promise
     fitTo: { mode: 'zoom', value: scale },
     font: {
       loadSystemFonts: true,
-      defaultFontFamily: 'Segoe UI',
-      sansSerifFamily: 'Segoe UI',
+      fontFiles: fontPaths,
+      defaultFontFamily: 'IBM Plex Sans',
+      sansSerifFamily: 'IBM Plex Sans',
+      monospaceFamily: 'IBM Plex Mono',
     },
     shapeRendering: 2,
     textRendering: 1,
@@ -285,49 +292,6 @@ function opaqueRgba(rendered: RenderedImage): Buffer {
     }
   }
   return pixels;
-}
-
-function windowsFont(
-  family: string,
-  bold: boolean,
-  italic: boolean,
-): string {
-  const fonts = join(process.env.SystemRoot ?? 'C:\\Windows', 'Fonts');
-  const mono = /cascadia|consolas|mono/i.test(family);
-  const file = mono
-    ? bold && italic
-      ? 'consolaz.ttf'
-      : bold
-        ? 'consolab.ttf'
-        : italic
-          ? 'consolai.ttf'
-          : 'consola.ttf'
-    : bold && italic
-      ? 'segoeuiz.ttf'
-      : bold
-        ? 'segoeuib.ttf'
-        : italic
-          ? 'segoeuii.ttf'
-          : 'segoeui.ttf';
-  const path = join(fonts, file);
-  if (existsSync(path)) {
-    return path;
-  }
-  return mono
-    ? bold && italic
-      ? 'Courier-BoldOblique'
-      : bold
-        ? 'Courier-Bold'
-        : italic
-          ? 'Courier-Oblique'
-          : 'Courier'
-    : bold && italic
-      ? 'Helvetica-BoldOblique'
-      : bold
-        ? 'Helvetica-Bold'
-        : italic
-          ? 'Helvetica-Oblique'
-          : 'Helvetica';
 }
 
 function artifact(
@@ -391,7 +355,9 @@ export async function exportDocumentArtifact(
       options.transparent === true,
       options.altText,
     );
-    const svg = renderSceneToSvg(scene);
+    fontBase64 ??= Promise.all(fontPaths.map(async (path) => (await readFile(path)).toString('base64')));
+    fontLicense ??= readFile(new URL(import.meta.resolve('@openchart/scene/fonts/OFL.txt')), 'utf8');
+    const svg = embedSvgFonts(renderSceneToSvg(scene), await fontBase64, await fontLicense);
     const accessibilityDescription =
       options.altText?.trim() || sceneAccessibilityDescription(scene);
 
@@ -431,7 +397,8 @@ export async function exportDocumentArtifact(
           pageId,
           region.width,
           region.height,
-          Buffer.from(await renderPdf(PDFDocument, svg, scene, accessibilityDescription, windowsFont)),
+          Buffer.from(await renderPdf(PDFDocument, svg, scene, accessibilityDescription, (family, bold, italic) =>
+            fileURLToPath(import.meta.resolve(`@openchart/scene/fonts/${plexPdfFont(family, bold, italic)}`)))),
         );
       case 'pptx': {
         const fallback = (await rasterize(svg, 1, region)).asPng();

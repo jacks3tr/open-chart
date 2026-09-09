@@ -202,6 +202,30 @@ try {
       assert.equal(await evaluate('window.__editorSmoke.commits'), before + (cancelled ? 0 : 1));
     });
   }
+  await test('cutting pasted shapes and connectors removes them together', async () => {
+    await evaluate(`document.querySelector('[title="Open templates"]').click()`);
+    await waitFor(() => evaluate(`Boolean(document.querySelector('[data-template-id="flowchart"]'))`), 'flowchart template');
+    await evaluate(`document.querySelector('[data-template-id="flowchart"]').click()`);
+    await waitFor(() => evaluate('Object.keys(window.__editorSmoke.document.edges).length > 0'), 'template connectors');
+    const counts = () => evaluate(`({ nodes: Object.keys(window.__editorSmoke.document.nodes).length,
+      edges: Object.keys(window.__editorSmoke.document.edges).length })`);
+    const before = await counts();
+    await evaluate(`document.querySelector('.oc-canvas-overlay').dispatchEvent(new KeyboardEvent('keydown',
+      { key: 'a', ctrlKey: true, bubbles: true, cancelable: true }))`);
+    await settle();
+    await evaluate(`document.querySelector('.oc-app').dispatchEvent(new ClipboardEvent('copy',
+      { clipboardData: new DataTransfer(), bubbles: true, cancelable: true }))`);
+    await settle();
+    await evaluate(`document.querySelector('.oc-app').dispatchEvent(new ClipboardEvent('paste',
+      { clipboardData: new DataTransfer(), bubbles: true, cancelable: true }))`);
+    await settle();
+    assert.deepEqual(await counts(), { nodes: before.nodes * 2, edges: before.edges * 2 });
+    await evaluate(`document.querySelector('.oc-app').dispatchEvent(new ClipboardEvent('cut',
+      { clipboardData: new DataTransfer(), bubbles: true, cancelable: true }))`);
+    await settle();
+    assert.deepEqual(await counts(), before);
+    assert.equal(await evaluate("document.body.textContent.includes('Cut selection')"), true);
+  });
   console.log(JSON.stringify({ passed: results.every((result) => result.passed), tests: results }, null, 2));
   if (results.some((result) => !result.passed)) process.exitCode = 1;
 } finally {

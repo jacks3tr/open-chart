@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./export": "./src/export-node.ts",
-    "./browser-export": "./src/export-browser.ts"
+    "./browser-export": "./src/export-browser.ts",
+    "./browser-fonts": "./src/browser-fonts.ts"
   },
   "dependencies": {
     "@openchart/ir": "0.0.0",

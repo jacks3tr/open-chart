@@ -204,3 +204,19 @@ describe('clipboard transactions', () => {
     ).toThrow('allocated duplicate');
   });
 });
+
+
+test('paste preserves paint order even when allocated IDs sort differently', () => {
+  const document = documentFixture();
+  const payload = createClipboardPayload(document, ['grouped'], frames);
+  let nextUid = 100;
+  const result = createPasteTransaction(document, payload, {
+    txId: 'tx.paint-order', pageId: 'page.main', layerId: 'layer.main', offset: { x: 24, y: 24 },
+    allocateId: (kind, id) => `${kind}.${id === 'grouped.a' ? 'z' : id === 'grouped.b' ? 'a' : id}.copy`,
+    allocateUid: () => uid(nextUid++),
+  });
+  const engine = new OperationEngine(document);
+  expect(engine.apply(result.envelope)).toMatchObject({ ok: true });
+  expect(engine.document.layout.overrides['node.z.copy']!.zIndex)
+    .toBeLessThan(engine.document.layout.overrides['node.a.copy']!.zIndex!);
+});

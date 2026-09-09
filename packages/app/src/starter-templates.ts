@@ -3,6 +3,7 @@ import { resolveLibraryShape } from '@openchart/shapes/libraries-core';
 import type { Operation, OperationEnvelope } from '@openchart/ops';
 
 export type StarterTemplateId =
+  | 'mes-erp'
   | 'flowchart'
   | 'integration'
   | 'cloud'
@@ -12,7 +13,7 @@ export type StarterTemplateId =
 export interface StarterTemplateNodeSpec {
   readonly key: string;
   readonly label: string;
-  readonly kind: 'service' | 'control' | 'database' | 'system' | 'text';
+  readonly kind: 'service' | 'control' | 'database' | 'system' | 'text' | 'connector-anchor';
   readonly parent?: string;
   readonly container?: boolean;
   readonly data?: Node['data'];
@@ -29,6 +30,7 @@ export interface StarterTemplateEdgeSpec {
   readonly to: string;
   readonly label?: string;
   readonly semantic?: string;
+  readonly strokeColor?: string;
   readonly routing?: Edge['routing'];
   readonly fromSide?: Port['side'];
   readonly toSide?: Port['side'];
@@ -63,9 +65,8 @@ function text(key: string, label: string, x: number, y: number, width: number,
     { kind: 'text', data: { fontSize, fontWeight: 500, textAlign: 'left', textColor: '#526277', ...data } });
 }
 
-function heading(section: string, title: string, subtitle: string): readonly StarterTemplateNodeSpec[] {
+function heading(title: string, subtitle: string): readonly StarterTemplateNodeSpec[] {
   return [
-    text('eyebrow', section.toUpperCase(), 64, 28, 1200, 12, { fontWeight: 700, textColor: '#2563EB' }),
     text('title', title, 64, 67, 1280, 34, { role: 'page-title', fontWeight: 700, textColor: '#15283F' }),
     text('subtitle', subtitle, 64, 124, 1280),
   ];
@@ -80,7 +81,7 @@ const FLOWCHART_STARTER: StarterTemplateDefinition = {
   id: 'flowchart', name: 'Approval flowchart', section: 'Process',
   description: 'A policy approval process with a clear success path, clarification loop, and completed outcome.',
   nodes: [
-    ...heading('01 / Business process', 'Request approval', 'Validate once. Resolve exceptions. Record the decision and close the request.'),
+    ...heading('Request approval', 'Validate once. Resolve exceptions. Record the decision and close the request.'),
     shape('start', 'Request received', 'flowchart.terminator', 72, 290, 180, 90, { kind: 'control' }),
     shape('validate', 'Validate request', 'flowchart.process', 332, 280, 190, 110),
     shape('decision', 'Meets policy?', 'flowchart.decision', 602, 250, 210, 170, { kind: 'control' }),
@@ -106,7 +107,7 @@ const INTEGRATION_STARTER: StarterTemplateDefinition = {
   id: 'integration', name: 'Event-driven integration', section: 'Architecture',
   description: 'An order API with durable events, asynchronous fulfillment, and a dead-letter queue for failed jobs.',
   nodes: [
-    ...heading('02 / Integration architecture', 'Order fulfillment platform', 'Synchronous order capture with durable messaging and independent fulfillment workers.'),
+    ...heading('Order fulfillment platform', 'Synchronous order capture with durable messaging and independent fulfillment workers.'),
     zone('api-zone', '01  /  Request & persistence', 'architecture.system-boundary', 72, 195, 1296, 220),
     zone('async-zone', '02  /  Asynchronous fulfillment', 'architecture.system-boundary', 572, 470, 796, 330),
     shape('client', 'Web & mobile', 'integration.client', 102, 255, 170, 120, { parent: 'api-zone' }),
@@ -142,7 +143,7 @@ const CLOUD_STARTER: StarterTemplateDefinition = {
   id: 'cloud', name: 'Resilient AWS application', section: 'Cloud',
   description: 'Protected ingress, load balancing, ECS across two availability zones, and a managed Multi-AZ database.',
   nodes: [
-    ...heading('03 / Cloud reference architecture', 'Resilient application on AWS', 'Protected ingress • Two application availability zones • Managed Multi-AZ persistence'),
+    ...heading('Resilient application on AWS', 'Protected ingress • Two application availability zones • Managed Multi-AZ persistence'),
     zone('edge-zone', 'Public ingress', 'architecture.edge-zone', 72, 210, 280, 550),
     zone('az-a', 'Private subnet / AZ A', 'architecture.availability-zone', 682, 210, 286, 250),
     zone('az-b', 'Private subnet / AZ B', 'architecture.availability-zone', 682, 510, 286, 250),
@@ -170,7 +171,7 @@ const UML_ERD_STARTER: StarterTemplateDefinition = {
   id: 'uml-erd', name: 'Order domain model', section: 'Software design',
   description: 'Service dependencies and a populated order schema with explicit customer, order, and line-item cardinalities.',
   nodes: [
-    ...heading('04 / Software design', 'Order domain & persistence', 'Application dependencies above; entity relationships and key fields below.'),
+    ...heading('Order domain & persistence', 'Application dependencies above; entity relationships and key fields below.'),
     shape('api', 'Checkout API', 'uml.component', 82, 235, 230, 145),
     shape('service', 'Order service', 'uml.component', 582, 235, 230, 145),
     shape('repo', 'Order repository', 'uml.component', 1102, 235, 230, 145),
@@ -195,7 +196,7 @@ const NETWORK_STARTER: StarterTemplateDefinition = {
   id: 'network', name: 'Segmented application network', section: 'Infrastructure',
   description: 'Perimeter controls, a DMZ load balancer, private application servers, and a restricted database path.',
   nodes: [
-    ...heading('05 / Network architecture', 'Segmented application network', 'Public access terminates at the perimeter. Application and data services stay private.'),
+    ...heading('Segmented application network', 'Public access terminates at the perimeter. Application and data services stay private.'),
     zone('perimeter', '01 / Perimeter', 'architecture.security-zone', 72, 210, 330, 585),
     zone('dmz', '02 / DMZ · 10.0.10.0/24', 'network.dmz', 472, 210, 330, 585),
     zone('private', '03 / Private · 10.0.20.0/24', 'architecture.private-subnet', 872, 210, 496, 585),
@@ -218,7 +219,57 @@ const NETWORK_STARTER: StarterTemplateDefinition = {
   ],
 };
 
+const MES_ERP_STARTER: StarterTemplateDefinition = {
+  id: 'mes-erp', name: 'MES-ERP integration', section: 'Architecture',
+  description: 'Manufacturing data and inventory flows between Plex MES and ERP through Middleware.',
+  nodes: [
+    ...[
+      { key: 'mes', label: 'Plex MES', x: 40, color: '#00B8A3' },
+      { key: 'middleware', label: 'Middleware', x: 470, color: '#929AA6' },
+      { key: 'erp', label: 'ERP', x: 900, color: '#60A5FA' },
+    ].flatMap(({ key, label, x, color }) => [
+      shape(key, '', 'flowchart.process', x, 40, 300, 990,
+        { kind: 'system', container: true, data: { fillColor: '#FFFFFF', borderColor: color } }),
+      { ...text(`${key}-title`, label, x + 24, 64, 252, 21,
+        { fontWeight: 700, textColor: '#15283F' }), parent: key },
+    ]),
+    ...[
+      { key: 'master', title: 'Master Data', x: 924, y: 130, parent: 'erp', rows: ['Part Information', 'Routings', 'Approved Workcenters', 'Bill of Materials'] },
+      { key: 'receiving', title: 'Receiving', x: 924, y: 340, parent: 'erp', rows: ['Create Receipt', 'Receive Inventory'] },
+      { key: 'production', title: 'Production Orders', x: 924, y: 500, parent: 'erp', rows: ['Create/Update Jobs', 'Schedule Jobs'] },
+      { key: 'returns', title: 'Return Inventory Transactions', x: 64, y: 660, parent: 'mes', rows: ['List Production Entries', 'List Scrap Entries', 'Container Adjustments'] },
+      { key: 'shipping', title: 'Retire Inventory (Shipping)', x: 924, y: 820, parent: 'erp', rows: ['Create Shipment', 'Stage FG Inventory', 'Ship FG Inventory'] },
+    ].flatMap(({ key, title, x, y, parent, rows }) => [
+      shape(key, '', 'flowchart.process', x, y, 252, 64 + rows.length * 26,
+        { parent, data: { fillColor: '#FFFFFF', borderColor: '#7B8490' } }),
+      { ...text(`${key}-title`, title, x + 12, y + 12, 228, 15,
+        { fontWeight: 700, textColor: '#20364D' }), parent },
+      ...rows.map((label, index) => ({ ...text(`${key}-row-${index}`, label, x + 12, y + 48 + index * 26, 228, 14), parent })),
+    ]),
+    ...[
+      { key: 'master-in', y: 214 }, { key: 'receiving-in', y: 398 },
+      { key: 'production-in', y: 558 }, { key: 'shipping-in', y: 891 },
+    ].map(({ key, y }) => shape(key, '', 'flowchart.connector', 336, y - 4, 8, 8,
+      { parent: 'mes', kind: 'connector-anchor', data: { connectorAnchor: true } })),
+    shape('polling-out', '', 'flowchart.connector', 466, 703.333333, 8, 8,
+      { parent: 'middleware', kind: 'connector-anchor', data: { connectorAnchor: true } }),
+    shape('returns-in', '', 'flowchart.connector', 896, 750.666667, 8, 8,
+      { parent: 'erp', kind: 'connector-anchor', data: { connectorAnchor: true } }),
+  ],
+  edges: [
+    ...['master', 'receiving', 'production', 'shipping'].map((from): StarterTemplateEdgeSpec => ({
+      from, to: `${from}-in`, fromSide: 'west', toSide: 'east', strokeColor: '#1677FF',
+      routing: { mode: 'straight', avoidObstacles: false },
+    })),
+    { from: 'polling-out', to: 'returns', label: 'Poll transactions', fromSide: 'west', toSide: 'east', strokeColor: '#1677FF',
+      routing: { mode: 'straight', avoidObstacles: false } },
+    { from: 'returns', to: 'returns-in', strokeColor: '#008C7A',
+      routing: { mode: 'straight', avoidObstacles: false } },
+  ],
+};
+
 export const STARTER_TEMPLATES: readonly StarterTemplateDefinition[] = [
+  MES_ERP_STARTER,
   FLOWCHART_STARTER,
   INTEGRATION_STARTER,
   CLOUD_STARTER,
@@ -365,6 +416,7 @@ export function createStarterTemplateTransaction(
       ...(parentId === undefined ? {} : { parentId }),
       ...(spec.container ? { container: { title: spec.label, autoGrow: true, clip: false, padding: 24 } } : {}),
       data: {
+        fontFamily: 'IBM Plex Sans, sans-serif',
         shape: { libraryId: spec.libraryId, entryId: spec.entryId },
         starterTemplate: template.id, fontSize: 16, fontWeight: 600,
         borderColor: typeof defaults.Accent === 'string' ? defaults.Accent : '#2563EB',
@@ -432,8 +484,8 @@ export function createStarterTemplateTransaction(
         lineWidth: 2,
         ...spec.routing,
       },
-      data: { starterTemplate: template.id, fontSize: 12, showSemanticLabel: false,
-        strokeColor: event ? '#07856D' : '#526B89' },
+      data: { starterTemplate: template.id, fontFamily: 'IBM Plex Sans, sans-serif', fontSize: 12, showSemanticLabel: false,
+        strokeColor: spec.strokeColor ?? (event ? '#07856D' : '#526B89') },
     };
     ops.push(
       { op: 'create_port', port: fromPort },

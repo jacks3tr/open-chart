@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <title>OpenChart</title>
+  <rect width="32" height="32" rx="8" fill="#155eef"/>
+  <path d="M10 16h4a6 6 0 0 0 6-6V9m-6 7a6 6 0 0 1 6 6v1" stroke="#fff" stroke-width="2"/>
+  <rect x="5" y="12.5" width="7" height="7" rx="2" fill="#fff"/>
+  <rect x="17" y="5" width="8" height="8" rx="2" fill="#fff"/>
+  <rect x="17" y="19" width="8" height="8" rx="2" fill="#9ff3e1"/>
+</svg>

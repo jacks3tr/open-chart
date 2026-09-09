@@ -32,6 +32,10 @@ synthetic diagram instead of production or customer data.
 its generator, run `npm run generate:icons` and `npm run check:icons`. The generated
 JavaScript is ignored; its handwritten declaration file is tracked.
 
+The brand mark is `packages/app/public/openchart.svg`. After changing it, regenerate
+desktop icons with `npx tauri icon packages/app/public/openchart.svg --output apps/desktop/src-tauri/icons`.
+Shared fonts and their upstream license live in `packages/scene/fonts`.
+
 ## Verify your change
 
 Run relevant existing tests while developing. Before opening a pull request:

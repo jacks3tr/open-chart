@@ -725,3 +725,11 @@ export function validateDocument(input: unknown): DocumentValidationResult {
 
   return { ok: true, document: parsed.data };
 }
+
+
+/** Internal endpoint nodes are not visible diagram assets. Includes endpoints in older MES templates. */
+export function isConnectorAnchor(node: Node | undefined): boolean {
+  return node !== undefined && ((node.kind === 'connector-anchor' && node.data.connectorAnchor === true) ||
+    (node.data.starterTemplate === 'mes-erp' && node.label === '' &&
+      /^node\.template\.mes-erp\.(master|receiving|production|shipping|returns)-in(?:\.copy-\d+)*$/.test(node.id)));
+}

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { compileTokenOperations } from '@openchart/derive';
 import northstarInput from '../../../examples/northstar-integration.openchart.json';
 import { createTransformTransaction, type TransformPreview } from '@openchart/interact';
 import { validateDocument, type OpenChartDocument } from '@openchart/ir';
@@ -124,6 +125,8 @@ describe('starter templates', () => {
         edges: template.edges.length,
       });
       expect(engine.document.pages[pageId]).toMatchObject({ name: template.name, color: '#FFFFFF' });
+      expect(transaction.nodeIds.every((id) => engine.document.nodes[id]?.data.fontFamily === 'IBM Plex Sans, sans-serif')).toBe(true);
+      expect(transaction.edgeIds.every((id) => engine.document.edges[id]?.data.fontFamily === 'IBM Plex Sans, sans-serif')).toBe(true);
 
       const insertedNodeIds = new Set(transaction.nodeIds);
       for (const edgeId of transaction.edgeIds) {
@@ -214,4 +217,43 @@ describe('starter templates', () => {
     expect(engine.undo()).toMatchObject({ ok: true });
     expect(pageSnapshot(engine.document, pageId)).toEqual(before);
   });
+});
+
+
+it('puts the normalized MES integration first and omits redundant template decorations', () => {
+  const template = STARTER_TEMPLATES[0]!;
+  expect(template.id).toBe('mes-erp');
+  expect(template.nodes.map((node) => node.label)).toEqual(expect.arrayContaining(['Plex MES', 'Middleware', 'ERP']));
+  expect(template.edges.map((edge) => [edge.from, edge.to])).toEqual([
+    ['master', 'master-in'], ['receiving', 'receiving-in'],
+    ['production', 'production-in'], ['shipping', 'shipping-in'], ['polling-out', 'returns'], ['returns', 'returns-in'],
+  ]);
+  for (const definition of STARTER_TEMPLATES) {
+    expect(definition.nodes.some((node) => node.key === 'eyebrow')).toBe(false);
+  }
+  for (const id of ['mes-erp', 'flowchart'] as const) {
+    const document = editableDocument();
+    const engine = new OperationEngine(document);
+    engine.apply(createStarterTemplateTransaction(document, getStarterTemplate(id), {
+      ...targetPage(document), txId: `test.decorations.${id}`,
+    }).envelope);
+    const svg = renderDocumentToSvg(engine.document);
+    expect(svg).not.toContain('FLOW LEGEND');
+    expect(svg).not.toContain('SYSTEM CONNECTIVITY');
+  }
+});
+
+it('keeps MES template headings and body text readable in the dark theme', () => {
+  const engine = new OperationEngine(editableDocument());
+  expect(engine.apply(createStarterTemplateTransaction(engine.document, getStarterTemplate('mes-erp'), {
+    ...targetPage(engine.document), txId: 'tx.mes-dark-template',
+  }).envelope).ok).toBe(true);
+  expect(engine.apply({ txId: 'tx.mes-dark-theme', actor: 'user', origin: 'gui', baseRev: engine.document.rev,
+    ops: compileTokenOperations(engine.document, 'openchart-dark'),
+  }).ok).toBe(true);
+  const svg = renderDocumentToSvg(engine.document);
+  for (const label of ['Plex MES', 'Master Data']) {
+    expect(svg).toMatch(new RegExp(`<text\\b[^>]*fill="#E6EDF6"[^>]*>${label}</text>`));
+  }
+  expect(svg).toMatch(/<text\b[^>]*fill="#B7C3D4"[^>]*>Part Information<\/text>/);
 });

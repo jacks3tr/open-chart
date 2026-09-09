@@ -1,14 +1,18 @@
+import { createPasteTransaction } from '@openchart/interact';
 import { describe, expect, it } from 'vitest';
 import { validateDocument, type OpenChartDocument } from '@openchart/ir';
 import { OperationEngine, type Operation, type OperationEnvelope } from '@openchart/ops';
 import { buildSceneDescription, type SceneItem, type SceneRectItem, type SceneTextItem } from '@openchart/scene';
 
 import {
+  createAssetClipboardPayload,
   addEdgeWaypointTransaction,
   commitConnectorCreation,
   connectorDoubleClickAction,
   connectorDragExceededThreshold,
   connectorLabelEditorStyle,
+  connectorSegmentHandleAt,
+  connectorSegmentHandles,
   createConnectorTransaction,
   detachEdgeEndpointTransaction,
   dragOrthogonalSegmentTransaction,
@@ -17,6 +21,7 @@ import {
   edgeTextStyleTransaction,
   moveEdgeWaypointTransaction,
   relinkEdgeTransaction,
+  setLineAngleTransaction,
 } from '../src/openchart-editor.js';
 
 const uid = (value: number): string => value.toString().padStart(26, '0');
@@ -129,6 +134,30 @@ function firstEdgeId(document: OpenChartDocument): string {
   if (edgeId === undefined) throw new Error('Expected connector fixture to contain an edge');
   return edgeId;
 }
+
+it('sets exact line angles without moving shapes and restores connections on undo', () => {
+  const engine = new OperationEngine(connectorDocument());
+  expect(engine.apply(createEnvelope(engine.document, 'create')).ok).toBe(true);
+  const original = structuredClone(engine.document);
+  const edgeId = firstEdgeId(original);
+  for (const angle of [0, 90, 180, 270, 45]) {
+    const tx = setLineAngleTransaction(engine.document, { txId: `angle-${angle}`, edgeId,
+      angle, from: { x: 100, y: 100 }, to: { x: 160, y: 180 } });
+    expect(tx).toBeDefined();
+    expect(engine.apply(tx!).ok).toBe(true);
+    const edge = engine.document.edges[edgeId]!;
+    const start = engine.document.layout.overrides[engine.document.ports[edge.fromPortId]!.nodeId]!;
+    const end = engine.document.layout.overrides[engine.document.ports[edge.toPortId]!.nodeId]!;
+    expect(start.x! + start.width! / 2).toBeCloseTo(100);
+    expect(start.y! + start.height! / 2).toBeCloseTo(100);
+    expect(end.x! + end.width! / 2).toBeCloseTo(100 + 100 * Math.cos(angle * Math.PI / 180));
+    expect(end.y! + end.height! / 2).toBeCloseTo(100 + 100 * Math.sin(angle * Math.PI / 180));
+    expect(engine.document.nodes['node.a']).toEqual(original.nodes['node.a']);
+    expect(engine.document.layout.overrides['node.a']).toEqual(original.layout.overrides['node.a']);
+    expect(engine.undo().ok).toBe(true);
+    expect(engine.document.edges[edgeId]).toEqual(original.edges[edgeId]);
+  }
+});
 
 function findEdgeLabelText(items: readonly SceneItem[], edgeId: string): SceneTextItem | undefined {
   for (const item of items) {
@@ -276,6 +305,21 @@ describe('direct connector manipulation', () => {
     expect(connectorDoubleClickAction({ label: 'HTTPS', wasSelected: false, labelHit: false })).toBe('edit-label');
     expect(connectorDoubleClickAction({ label: 'HTTPS', wasSelected: true, labelHit: true })).toBe('edit-label');
     expect(connectorDoubleClickAction({ label: 'HTTPS', wasSelected: true, labelHit: false })).toBe('add-waypoint');
+  });
+
+  it('exposes a discoverable bend handle at the midpoint of every usable connector segment', () => {
+    const points = [
+      { x: 20, y: 20 }, { x: 120, y: 20 }, { x: 120, y: 100 }, { x: 128, y: 100 },
+    ] as const;
+    expect(connectorSegmentHandles(points, 24)).toEqual([
+      { segmentIndex: 0, point: { x: 70, y: 20 } },
+      { segmentIndex: 1, point: { x: 120, y: 60 } },
+    ]);
+    expect(connectorSegmentHandleAt(points, { x: 72, y: 21 }, 4, 24)).toEqual({
+      segmentIndex: 0,
+      point: { x: 70, y: 20 },
+    });
+    expect(connectorSegmentHandleAt(points, { x: 90, y: 20 }, 4, 24)).toBeUndefined();
   });
 
   it('centers the in-place connector label editor on the rendered label background', () => {
@@ -472,4 +516,57 @@ describe('direct connector manipulation', () => {
     expect(engine.undo()).toMatchObject({ ok: true });
     expect(engine.document.layout.edgeOverrides?.[edgeId]).toBeUndefined();
   });
+});
+
+
+it('copies an arrow alone without copying or changing its attached shapes', () => {
+  const engine = new OperationEngine(connectorDocument());
+  expect(engine.apply(createEnvelope(engine.document, 'tx.arrow-copy'))).toMatchObject({ ok: true });
+  const source = engine.document;
+  const edgeId = firstEdgeId(source);
+  const payload = createAssetClipboardPayload(source, [edgeId], {}, buildSceneDescription(source).connectors ?? []);
+  expect(Object.keys(payload.edges)).toEqual([edgeId]);
+  expect(Object.values(payload.nodes)).toHaveLength(2);
+  expect(Object.values(payload.nodes).every((node) => node.data.connectorAnchor === true)).toBe(true);
+  expect(source.edges[edgeId]!.fromPortId).toBe(engine.document.edges[edgeId]!.fromPortId);
+  let nextUid = 100;
+  const paste = createPasteTransaction(source, payload, { txId: 'tx.paste-arrow', pageId: 'page.main', layerId: 'layer.main',
+    offset: { x: 24, y: 24 }, allocateId: (_kind, id) => `${id}.copy`, allocateUid: () => uid(nextUid++) });
+  expect(engine.apply(paste.envelope)).toMatchObject({ ok: true });
+  expect(Object.keys(engine.document.edges)).toHaveLength(2);
+  expect(engine.document.edges[`${edgeId}.copy`]!.routing).toEqual(source.edges[edgeId]!.routing);
+  expect(engine.document.nodes['node.a']).toEqual(source.nodes['node.a']);
+  expect(engine.document.nodes['node.b']).toEqual(source.nodes['node.b']);
+});
+
+it('copies a selected connector with its shapes without needing rendered geometry', () => {
+  const engine = new OperationEngine(connectorDocument());
+  expect(engine.apply(createEnvelope(engine.document, 'tx.mixed-copy'))).toMatchObject({ ok: true });
+  const edgeId = firstEdgeId(engine.document);
+  const payload = createAssetClipboardPayload(engine.document, ['node.a', 'node.b', edgeId], {
+    'node.a': { x: 0, y: 0, width: 120, height: 80 },
+    'node.b': { x: 240, y: 0, width: 120, height: 80 },
+  }, []);
+  expect(Object.keys(payload.nodes)).toEqual(['node.a', 'node.b']);
+  expect(payload.edges[edgeId]).toEqual(engine.document.edges[edgeId]);
+});
+
+
+it('deleting a line removes its unused endpoint nodes and undo restores them', () => {
+  const engine = new OperationEngine(connectorDocument());
+  engine.apply(createEnvelope(engine.document, 'tx.cleanup-line'));
+  const edgeId = firstEdgeId(engine.document);
+  for (const endpoint of ['from', 'to'] as const) {
+    const tx = detachEdgeEndpointTransaction(engine.document, { txId: `tx.detach.${endpoint}`, edgeId, endpoint, point: { x: 100, y: 100 } });
+    expect(engine.apply(tx!)).toMatchObject({ ok: true });
+  }
+  const before = engine.document;
+  const anchors = Object.values(before.nodes).filter((node) => node.data.connectorAnchor === true);
+  expect(anchors).toHaveLength(2);
+  expect(engine.apply({ txId: 'tx.delete-line', actor: 'user', origin: 'gui', baseRev: before.rev,
+    ops: [{ op: 'delete_edge', id: edgeId }] })).toMatchObject({ ok: true });
+  expect(anchors.every((node) => engine.document.nodes[node.id] === undefined)).toBe(true);
+  expect(engine.document.nodes['node.a']).toEqual(before.nodes['node.a']);
+  engine.undo();
+  expect(anchors.every((node) => engine.document.nodes[node.id] !== undefined)).toBe(true);
 });
