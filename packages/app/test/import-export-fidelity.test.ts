@@ -3,6 +3,7 @@ import northstarInput from '../../../examples/northstar-integration.openchart.js
 import { createTransformTransaction, type TransformPreview } from '@openchart/interact';
 import { validateDocument, type OpenChartDocument } from '@openchart/ir';
 import { OperationEngine } from '@openchart/ops';
+import { renderDocumentToSvg } from '@openchart/serialize';
 
 import { createBrowserTextExport } from '../src/browser-text-export.js';
 import {
@@ -14,6 +15,7 @@ import { createBlankInitialDocument } from '../src/initial-document.js';
 import {
   createStarterTemplateTransaction,
   getStarterTemplate,
+  STARTER_TEMPLATES,
 } from '../src/starter-templates.js';
 
 function editableDocument(): OpenChartDocument {
@@ -125,6 +127,34 @@ function requiredFrame(document: OpenChartDocument, nodeId: string): {
 }
 
 describe('import/export fidelity', () => {
+  it('keeps new diagrams free of generated sample headings and legends after adding content', () => {
+    const source = editableDocument();
+    const blank = createBlankInitialDocument(source);
+    const document = {
+      ...blank, nodes: source.nodes, ports: source.ports, edges: source.edges,
+      layout: { ...blank.layout, overrides: source.layout.overrides },
+    };
+    const svg = renderDocumentToSvg(document);
+    expect(svg).toContain('Northstar');
+    expect(svg).not.toContain('id="artboard-header"');
+    expect(svg).not.toContain('id="flow-legend"');
+    expect(renderDocumentToSvg(source)).toContain('id="artboard-header"');
+  });
+
+  it.each(STARTER_TEMPLATES)('round-trips the $id UI template through native code with exact document and geometry equality', (template) => {
+    const base = createBlankInitialDocument(editableDocument());
+    const { pageId, layerId } = targetPage(base);
+    const engine = new OperationEngine(base);
+    const transaction = createStarterTemplateTransaction(base, template, { txId: 'tx.code.template', pageId, layerId, makeUid: deterministicUidFactory() });
+    const applied = engine.apply(transaction.envelope);
+    if (!applied.ok) throw new Error(JSON.stringify(applied.diagnostics));
+    const document = engine.document;
+    const exported = createBrowserTextExport(document, 'openchart');
+    expect(exported.extension).toBe('openchart');
+    expect(exported.losses).toEqual([]);
+    expect(parseDesktopDocument(exported.content)).toEqual(document);
+  });
+
   it('exports the Approval flowchart to D2 and Mermaid with explicit projection loss notices', () => {
     const { document, pageId } = createApprovalFlowchartDocument();
     const d2 = createBrowserTextExport(document, 'd2', pageId);

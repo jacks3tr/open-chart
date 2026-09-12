@@ -437,10 +437,13 @@ function buildGraph(
     if (edge === undefined) {
       continue;
     }
+    const fromPort = document.ports[edge.fromPortId];
+    const toPort = document.ports[edge.toPortId];
+    if (fromPort === undefined || toPort === undefined) continue;
     edges.push({
       id: encodedEdgeId(edge.id),
-      sources: [encodedPortId(edge.fromPortId)],
-      targets: [encodedPortId(edge.toPortId)],
+      sources: [mode === 'radial' ? encodedNodeId(fromPort.nodeId) : encodedPortId(edge.fromPortId)],
+      targets: [mode === 'radial' ? encodedNodeId(toPort.nodeId) : encodedPortId(edge.toPortId)],
     });
   }
   const graph: ElkNode = {

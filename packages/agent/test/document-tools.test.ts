@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { loadDocument } from '@openchart/persistence';
 import type { Operation } from '@openchart/ops';
+import { exportDocumentToOpenChartCode } from '@openchart/serialize';
 
 import {
   OpenChartDocumentSession,
@@ -120,6 +121,7 @@ describe('OpenChart agent document tools', () => {
           id: 'service.ingress',
           label: 'Ingress gateway v2',
         },
+        { op: 'set_page_background', id: 'page.architecture', color: null },
       ] satisfies readonly Operation[],
     };
 
@@ -128,8 +130,8 @@ describe('OpenChart agent document tools', () => {
       dryRun: true,
       replayed: false,
       rev: 1,
-      applied: 1,
-      changedIds: ['service.ingress'],
+      applied: 2,
+      changedIds: ['page.architecture', 'service.ingress'],
     });
     expect(session.document.rev).toBe(0);
     expect(await readFile(documentPath, 'utf8')).toBe(before);
@@ -141,8 +143,8 @@ describe('OpenChart agent document tools', () => {
       dryRun: false,
       replayed: false,
       rev: 1,
-      applied: 1,
-      changedIds: ['service.ingress'],
+      applied: 2,
+      changedIds: ['page.architecture', 'service.ingress'],
     });
     await expect(
       tools.applyOperations({ ...input, dryRun: false }),
@@ -154,6 +156,7 @@ describe('OpenChart agent document tools', () => {
     });
 
     const persisted = await loadDocument(documentPath);
+    expect(persisted.document.pages['page.architecture']?.backgroundColor).toBeNull();
     expect(persisted.document.nodes['service.ingress']?.label).toBe(
       'Ingress gateway v2',
     );
@@ -267,6 +270,10 @@ describe('OpenChart agent document tools', () => {
       rev: 0,
     });
     expect(await readFile(disabled.documentPath, 'utf8')).toBe(beforeDisabled);
+    await expect(disabled.tools.applyCode({
+      source: exportDocumentToOpenChartCode(disabled.session.document),
+      baseRev: 0, txId: 'tx.disabled-code', dryRun: false,
+    })).resolves.toMatchObject({ ok: false, code: 'MUTATIONS_DISABLED', rev: 0 });
 
     const guarded = await openFixture();
     const beforeGuarded = await readFile(guarded.documentPath, 'utf8');
@@ -298,6 +305,9 @@ describe('OpenChart agent document tools', () => {
       rev: 0,
       deleteCount: 26,
     });
+    expect(await readFile(guarded.documentPath, 'utf8')).toBe(beforeGuarded);
+    await expect(guarded.tools.applyCode({ source: 'openchart 1', baseRev: 0, txId: 'tx.code-delete', dryRun: false }))
+      .resolves.toMatchObject({ ok: false, code: 'DESTRUCTIVE_CONFIRMATION_REQUIRED', rev: 0 });
     expect(await readFile(guarded.documentPath, 'utf8')).toBe(beforeGuarded);
   });
 });

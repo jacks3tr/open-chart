@@ -20,6 +20,39 @@ function intersects(left: LayoutFrame, right: LayoutFrame): boolean {
 }
 
 describe('layoutDocument', () => {
+  test('places radial branches around their parent instead of flattening port-connected nodes into a row', async () => {
+    const validation = validateDocument(JSON.parse(readFileSync(fixturePath, 'utf8')));
+    if (!validation.ok) throw new Error('Invalid layout fixture');
+    const document = structuredClone(validation.document);
+    document.nodes = {};
+    document.ports = {};
+    document.edges = {};
+    document.layout = { overrides: {}, derived: null };
+    for (const [index, id] of ['center', 'north', 'east', 'south', 'west'].entries()) {
+      document.nodes[id] = {
+        id, uid: String(100 + index).padStart(26, '0'), kind: 'service', label: id,
+        pageId: 'page.architecture', layerId: 'layer.systems', styleId: 'style.fabric', data: {},
+      };
+      document.layout.overrides[id] = { x: index * 120, y: 200, width: 80, height: 80, pinned: false };
+      document.ports[id] = {
+        id, uid: String(200 + index).padStart(26, '0'), nodeId: id, side: 'auto', direction: 'both',
+      };
+      if (id !== 'center') document.edges[id] = {
+        id, uid: String(300 + index).padStart(26, '0'), fromPortId: 'center', toPortId: id,
+        label: '', semantic: 'Request', pageId: 'page.architecture', layerId: 'layer.systems', styleId: 'style.fabric', data: {},
+      };
+    }
+    const { frames } = await layoutDocument(document, { pageId: 'page.architecture', mode: 'radial' });
+    const center = frames.center;
+    if (center === undefined) throw new Error('Radial layout omitted the center node');
+    const branches = Object.entries(frames).filter(([id]) => id !== 'center').map(([, frame]) => frame);
+    expect(branches).toHaveLength(4);
+    expect(branches.some((frame) => frame.y + frame.height <= center.y)).toBe(true);
+    expect(branches.some((frame) => frame.y >= center.y + center.height)).toBe(true);
+    expect(branches.some((frame) => frame.x + frame.width <= center.x)).toBe(true);
+    expect(branches.some((frame) => frame.x >= center.x + center.width)).toBe(true);
+  });
+
   test('is deterministic, supports every promised mode, and preserves explicit pins', async () => {
     const input: unknown = JSON.parse(readFileSync(fixturePath, 'utf8'));
     const validation = validateDocument(input);

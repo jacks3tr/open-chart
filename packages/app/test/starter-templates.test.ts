@@ -124,7 +124,8 @@ describe('starter templates', () => {
         nodes: template.nodes.length,
         edges: template.edges.length,
       });
-      expect(engine.document.pages[pageId]).toMatchObject({ name: template.name, color: '#FFFFFF' });
+      expect(engine.document.pages[pageId]).toMatchObject({ name: template.name, backgroundColor: '#FFFFFF' });
+      expect(engine.document.pages[pageId]?.color).toBe(source.pages[pageId]?.color);
       expect(transaction.nodeIds.every((id) => engine.document.nodes[id]?.data.fontFamily === 'IBM Plex Sans, sans-serif')).toBe(true);
       expect(transaction.edgeIds.every((id) => engine.document.edges[id]?.data.fontFamily === 'IBM Plex Sans, sans-serif')).toBe(true);
 

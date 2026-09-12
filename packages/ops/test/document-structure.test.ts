@@ -62,6 +62,33 @@ function documentFixture(): OpenChartDocument {
 }
 
 describe('page and layer operations', () => {
+  test('changes page background independently of tab color, with transparency and undo', () => {
+    const engine = new OperationEngine(documentFixture());
+    expect(engine.apply({
+      txId: 'tx.page-background', actor: 'user', origin: 'gui', baseRev: 0,
+      ops: [
+        { op: 'set_page_color', id: 'page.main', color: '#7C3AED' },
+        { op: 'set_page_background', id: 'page.main', color: '#FFF4E6' },
+      ],
+    })).toMatchObject({ ok: true });
+    expect(engine.document.pages['page.main']).toMatchObject({ color: '#7C3AED', backgroundColor: '#FFF4E6' });
+
+    expect(engine.apply({
+      txId: 'tx.transparent-background', actor: 'user', origin: 'gui', baseRev: engine.document.rev,
+      ops: [{ op: 'set_page_background', id: 'page.main', color: null }],
+    })).toMatchObject({ ok: true });
+    expect(engine.document.pages['page.main']).toMatchObject({ color: '#7C3AED', backgroundColor: null });
+    expect(engine.undo()).toMatchObject({ ok: true });
+    expect(engine.document.pages['page.main']).toMatchObject({ color: '#7C3AED', backgroundColor: '#FFF4E6' });
+
+    const before = engine.document;
+    expect(engine.apply({
+      txId: 'tx.invalid-background', actor: 'user', origin: 'gui', baseRev: engine.document.rev,
+      ops: [{ op: 'set_page_background', id: 'page.main', color: 'invalid' }],
+    })).toMatchObject({ ok: false });
+    expect(engine.document).toEqual(before);
+  });
+
   test('edits connector intent and geometry atomically while rejecting reversed endpoints', () => {
     const engine = new OperationEngine(documentFixture());
     expect(

@@ -713,26 +713,40 @@ function restyleLibraryItem(item: SceneItem, node: Node, bounds: Bounds, style: 
   if (item.type === 'group') {
     return { ...item, children: item.children.map((child) => restyleLibraryItem(child, node, bounds, style)) };
   }
-  if (item.type === 'text' && item.value === node.label.split('\n')[0]) {
+  if (item.type === 'text' && (item.value === node.label || item.value === node.label.split('\n')[0])) {
     const fontFamily = readString(node.data, 'fontFamily');
-    const fontSize = readNumber(node.data, 'fontSize');
+    const fontSize = clamp(readNumber(node.data, 'fontSize') ?? 18, 8, 96);
     const fontWeight = readNumber(node.data, 'fontWeight');
     const textColor = safeColor(node.data.textColor);
     const alignment = readString(node.data, 'textAlign');
-    return {
+    const text: SceneTextItem = {
       ...item,
       minZoom: 0.25,
       ...(fontFamily === undefined ? {} : { fontFamily }),
-      ...(fontSize === undefined ? {} : { fontSize: clamp(fontSize, 8, 96) }),
+      fontSize,
       at: {
         x: alignment === 'left' ? bounds.x + 8 : alignment === 'right' ? bounds.x + bounds.width - 8 : item.at.x,
-        y: item.at.y + ((fontSize === undefined ? item.fontSize : clamp(fontSize, 8, 96)) - item.fontSize) * 0.35,
+        y: item.at.y + (fontSize - item.fontSize) * 0.35,
       },
       ...(fontWeight === undefined ? {} : { fontWeight: clamp(fontWeight, 100, 900) }),
       ...(readString(node.data, 'fontStyle') === 'italic' ? { fontStyle: 'italic' as const } : {}),
       ...(node.data.underline === true ? { underline: true } : {}),
       ...(textColor === undefined ? {} : { fill: textColor }),
       ...(alignment === 'center' ? { anchor: 'middle' as const } : alignment === 'right' ? { anchor: 'end' as const } : alignment === 'left' ? { anchor: 'start' as const } : {}),
+    };
+    const lineAdvance = text.fontSize * clamp(readNumber(node.data, 'lineHeight') ?? 1.2, 0.8, 3);
+    const maxLines = Math.max(1, Math.floor((bounds.height - 16) / lineAdvance));
+    const lines = item.value.split('\n').flatMap((line) =>
+      wrapText(line, Math.max(20, bounds.width - 16), text.fontSize * 0.55, maxLines));
+    if (lines.length === 1) return { ...text, value: lines[0] ?? '' };
+    return {
+      type: 'group', id: `${item.id}-lines`, role: 'label',
+      children: lines.map((value, index): SceneTextItem => ({
+        ...text,
+        id: index === 0 ? item.id : `${item.id}-${index + 1}`,
+        value,
+        at: { x: text.at.x, y: text.at.y + (index - (lines.length - 1) / 2) * lineAdvance },
+      })),
     };
   }
   const mainStroke = 'stroke' in item && item.stroke === style.accent;
@@ -860,7 +874,7 @@ function fallbackEdgeStroke(edge: Edge, style: Style | undefined): string {
   return PALETTE.slate;
 }
 
-function edgeStyle(edge: Edge, style: Style | undefined): EdgeStyle {
+export function edgeStyle(edge: Edge, style: Style | undefined): EdgeStyle {
   const role = textValue(style?.role, edge.styleId || 'flow');
   const common = {
     stroke: safeColor(edge.data.strokeColor) ?? safeColor(readString(style?.tokens, 'stroke')) ?? fallbackEdgeStroke(edge, style),
@@ -1203,10 +1217,10 @@ function edgeLabelPoint(
   points: readonly ScenePoint[],
   layout: EdgeLayoutOverride | undefined,
 ): ScenePoint {
-  if (layout?.labelT === undefined) {
+  if (layout?.labelT === undefined && layout?.labelPlacement === undefined && layout?.labelOffset === undefined) {
     return labelPoint(points);
   }
-  const sampled = pointAtNormalizedDistance(points, layout.labelT) ?? labelPoint(points);
+  const sampled = pointAtNormalizedDistance(points, layout.labelT ?? 0.5) ?? labelPoint(points);
   const offset = layout.labelOffset ?? 0;
   switch (layout.labelPlacement ?? 'above') {
     case 'above':
@@ -1755,7 +1769,12 @@ function renderEdge(
   );
   const labelX = point.x - labelWidth / 2;
   const labelLineAdvance = labelFontSize * labelLineHeight;
-  const labelY = point.y - (visualCaption ? Math.max(16, labelLineAdvance) : labelFontSize * 0.8);
+  const labelHeight = visualCaption ? 31 : 20;
+  const labelY = layout?.labelPlacement === 'below'
+    ? point.y + 13
+    : layout?.labelPlacement === 'on'
+      ? point.y + 13 - labelHeight / 2
+      : point.y - (visualCaption ? Math.max(16, labelLineAdvance) : labelFontSize * 0.8);
   const labelTextX = labelAnchor === 'start'
     ? labelX + 9
     : labelAnchor === 'end'
@@ -1805,7 +1824,7 @@ function renderEdge(
       {
         type: 'rect',
         id: `${edgeId}-label-bg`,
-        frame: { x: labelX, y: labelY - 13, width: labelWidth, height: visualCaption ? 31 : 20 },
+        frame: { x: labelX, y: labelY - 13, width: labelWidth, height: labelHeight },
         radius: 6,
         fill: PALETTE.paper,
         fillOpacity: 0.95,
@@ -2603,51 +2622,18 @@ export function buildSceneDescription(
     .filter((group): group is SceneGroup => group !== undefined);
   const title = textValue(document.title, 'OpenChart document');
   const description = `${textValue(page.name, 'OpenChart page')} with ${nodes.length} nodes and ${edges.length} flows.`;
-  const needsArtboardSurface = document.theme?.presetId === 'openchart-dark'
-    || document.theme?.presetId === 'high-contrast';
   const hasDiagramContent = nodes.length > 0 || edges.length > 0;
   const artboardChildren: SceneItem[] = [
-    ...(needsArtboardSurface || page.color !== undefined
-      ? [
-          {
-            type: 'rect' as const,
-            id: 'artboard-background',
-            layer: 'background' as const,
-            frame: { x: 0, y: 0, width: canvasWidth, height: canvasHeight },
-            fill: safeColor(page.color) ?? PALETTE.paper,
-          },
-        ]
-      : []),
-    ...(needsArtboardSurface
-      ? [
-          {
-            type: 'dot-grid' as const,
-            id: 'artboard-dot-grid',
-            layer: 'background' as const,
-            frame: {
-              x: 24,
-              y: 144,
-              width: Math.max(0, canvasWidth - 48),
-              height: Math.max(0, canvasHeight - 202),
-            },
-            step: 24,
-            offset: { x: 2, y: 2 },
-            radius: 1.15,
-            fill: PALETTE.ink,
-            fillOpacity: 0.11,
-            opacity: 0.64,
-            minZoom: 0.4,
-          },
-        ]
-      : []),
-    ...(hasDiagramContent && !nodes.some((node) => node.data.role === 'page-title' || typeof node.data.starterTemplate === 'string')
+    ...(hasDiagramContent && layoutOptions?.showDocumentChrome !== false
+      && !nodes.some((node) => node.data.role === 'page-title' || typeof node.data.starterTemplate === 'string')
       ? [renderHeader(document, page, layoutOptions, nodes.length, edges.length, canvasWidth)]
       : []),
     ...zones.map(renderZone),
     ...edgeGroups,
     ...jumpGroups,
     ...nodeGroups,
-    ...(hasDiagramContent ? [renderLegend(edges, edgeStyles, canvasWidth, canvasHeight)] : []),
+    ...(hasDiagramContent && layoutOptions?.showDocumentChrome !== false
+      ? [renderLegend(edges, edgeStyles, canvasWidth, canvasHeight)] : []),
   ];
   const artboard: SceneGroup = {
     type: 'group',
@@ -2660,6 +2646,8 @@ export function buildSceneDescription(
   const themedArtboard = themeColors.size === 0
     ? artboard
     : themeSceneItem(artboard, themeColors, documentThemeTypeFloor(document)) as SceneGroup;
+  const backgroundColor = page.backgroundColor === undefined
+    ? themedColor(PALETTE.paper, themeColors) : page.backgroundColor;
   const contentBounds = sceneItemsBounds([...nodeGroups, ...edgeGroups, ...jumpGroups]);
   const exportX = options.width === undefined && contentBounds !== undefined && contentBounds.x < 0 ? contentBounds.x - 24 : 0;
   const exportY = options.height === undefined && contentBounds !== undefined && contentBounds.y < 0 ? contentBounds.y - 24 : 0;
@@ -2667,13 +2655,17 @@ export function buildSceneDescription(
   const contentBottom = (contentBounds?.y ?? 0) + (contentBounds?.height ?? 0);
   const exportRight = options.width === undefined && contentRight > canvasWidth ? contentRight + 24 : canvasWidth;
   const exportBottom = options.height === undefined && contentBottom > canvasHeight ? contentBottom + 24 : canvasHeight;
+  const bounds = { x: exportX, y: exportY, width: exportRight - exportX, height: exportBottom - exportY };
+  const background: SceneItem[] = backgroundColor === null ? [] : [{
+    type: 'rect', id: 'artboard-background', layer: 'background', frame: bounds, fill: backgroundColor,
+  }];
   return {
     version: SCENE_VERSION,
-    bounds: { x: exportX, y: exportY, width: exportRight - exportX, height: exportBottom - exportY },
+    bounds,
     ...(contentBounds === undefined ? {} : { contentBounds }),
     title,
     description,
-    items: [themedArtboard],
+    items: [{ ...themedArtboard, children: [...background, ...themedArtboard.children] }],
     connectors: connectorGeometries,
   };
 }

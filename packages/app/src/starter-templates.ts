@@ -394,7 +394,7 @@ export function createStarterTemplateTransaction(
   }
 
   ops.push({ op: 'rename_page', id: page.id, name: template.name });
-  ops.push({ op: 'set_page_color', id: page.id, color: '#FFFFFF' });
+  ops.push({ op: 'set_page_background', id: page.id, color: '#FFFFFF' });
 
   for (const spec of template.nodes) {
     const id = allocateId(document.nodes, nodeReserved, `node.template.${template.id}.${spec.key}`);

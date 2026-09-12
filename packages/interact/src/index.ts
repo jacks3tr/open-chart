@@ -717,11 +717,22 @@ export function createTransformTransaction(
   if (entries.length === 0) {
     throw new Error('Transform preview must contain at least one update');
   }
+  const translations = new Map<string, InteractionPoint>();
   const ops: Operation[] = entries.map(([id, frame]) => {
     if (document.nodes[id] === undefined) {
       throw new Error(`Transform node ${JSON.stringify(id)} does not exist`);
     }
     requireTransformFrame(preview.updates, id);
+    const derived = document.layout.derived?.[id];
+    const override = document.layout.overrides[id];
+    const previous = derived === undefined || override?.pinned === true ? { ...derived, ...override } : derived;
+    if (
+      previous.x !== undefined && previous.y !== undefined &&
+      frame.width === previous.width && frame.height === previous.height &&
+      (frame.rotation ?? override?.rotation ?? 0) === (override?.rotation ?? 0)
+    ) {
+      translations.set(id, { x: frame.x - previous.x, y: frame.y - previous.y });
+    }
     return {
       op: 'set_node_layout',
       id,
@@ -736,6 +747,21 @@ export function createTransformTransaction(
       },
     };
   });
+  for (const [id, layout] of Object.entries(document.layout.edgeOverrides ?? {}).sort(([left], [right]) => compareStrings(left, right))) {
+    const edge = document.edges[id];
+    if (edge === undefined || document.layers[edge.layerId]?.locked || !layout.waypoints?.length) continue;
+    const fromNodeId = document.ports[edge.fromPortId]?.nodeId;
+    const toNodeId = document.ports[edge.toPortId]?.nodeId;
+    const from = fromNodeId === undefined ? undefined : translations.get(fromNodeId);
+    const to = toNodeId === undefined ? undefined : translations.get(toNodeId);
+    if (from === undefined || to === undefined || (from.x === 0 && from.y === 0)) continue;
+    if (Math.abs(from.x - to.x) > 1e-9 || Math.abs(from.y - to.y) > 1e-9) continue;
+    ops.push({
+      op: 'set_edge_layout',
+      id,
+      layout: { ...layout, waypoints: layout.waypoints.map((point) => ({ x: point.x + from.x, y: point.y + from.y })) },
+    });
+  }
   return {
     txId: options.txId,
     actor: 'user',

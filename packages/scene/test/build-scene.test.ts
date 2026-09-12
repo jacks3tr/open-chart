@@ -29,6 +29,63 @@ function collectItems(items: readonly SceneItem[]): readonly SceneItem[] {
 }
 
 describe('buildSceneDescription', () => {
+  it.each([undefined, 18])('wraps a normal process label at readable size (font override %s)', (fontSize) => {
+    const parsed = validateDocument(JSON.parse(readFileSync(fixturePath, 'utf8')));
+    if (!parsed.ok) throw new Error('Invalid fixture');
+    const document = parsed.document;
+    document.nodes['shape.review'] = {
+      id: 'shape.review', uid: 'R'.repeat(26), kind: 'service',
+      label: 'Review expense request for manager approval',
+      pageId: 'page.architecture', layerId: 'layer.systems', styleId: 'style.fabric',
+      data: {
+        shape: { libraryId: 'flowchart', entryId: 'flowchart.process' },
+        ...(fontSize === undefined ? {} : { fontSize }),
+      },
+    };
+    document.layout.overrides['shape.review'] = { x: 100, y: 100, width: 180, height: 112 };
+    const group = collectGroups(buildSceneDescription(document).items).find((item) => item.entityId === 'shape.review');
+    const lines = collectItems(group?.children ?? []).filter((item) => item.type === 'text');
+    expect(lines.map(({ value, fontSize: size, at, anchor }) => ({ value, size, x: at.x, anchor }))).toEqual([
+      { value: 'Review expense', size: 18, x: 190, anchor: 'middle' },
+      { value: 'request for', size: 18, x: 190, anchor: 'middle' },
+      { value: 'manager approval', size: 18, x: 190, anchor: 'middle' },
+    ]);
+    expect(lines[0]?.at.y).toBeCloseTo(140.7);
+    expect(lines[1]?.at.y).toBeCloseTo(162.3);
+    expect(lines[2]?.at.y).toBeCloseTo(183.9);
+    expect(document.nodes['shape.review'].label).toBe('Review expense request for manager approval');
+  });
+
+  it.each([
+    ['left', 'start', 108],
+    ['center', 'middle', 190],
+    ['right', 'end', 272],
+  ])('renders each line of a catalog label with %s-aligned typography', (alignment, anchor, x) => {
+    const parsed = validateDocument(JSON.parse(readFileSync(fixturePath, 'utf8')));
+    if (!parsed.ok) throw new Error('Invalid fixture');
+    const document = parsed.document;
+    document.nodes['shape.review'] = {
+      id: 'shape.review', uid: 'R'.repeat(26), kind: 'service', label: 'Review\nrequest',
+      pageId: 'page.architecture', layerId: 'layer.systems', styleId: 'style.fabric',
+      data: {
+        shape: { libraryId: 'flowchart', entryId: 'flowchart.process' },
+        fontSize: 24, lineHeight: 1.5, fontWeight: 700, fontStyle: 'italic',
+        underline: true, textColor: '#2563EB', fontFamily: 'Georgia, serif', textAlign: alignment,
+      },
+    };
+    document.layout.overrides['shape.review'] = { x: 100, y: 100, width: 180, height: 112 };
+    const group = collectGroups(buildSceneDescription(document).items).find((item) => item.entityId === 'shape.review');
+    expect(group).toBeDefined();
+    const lines = collectItems(group?.children ?? []).filter((item) => item.type === 'text');
+    expect(lines.map(({ value, at, fontSize, fontWeight, fontStyle, underline, fill, fontFamily, anchor: textAnchor }) =>
+      ({ value, at, fontSize, fontWeight, fontStyle, underline, fill, fontFamily, anchor: textAnchor }))).toEqual([
+      { value: 'Review', at: { x, y: 146.4 }, fontSize: 24, fontWeight: 700, fontStyle: 'italic', underline: true,
+        fill: '#2563EB', fontFamily: 'Georgia, serif', anchor },
+      { value: 'request', at: { x, y: 182.4 }, fontSize: 24, fontWeight: 700, fontStyle: 'italic', underline: true,
+        fill: '#2563EB', fontFamily: 'Georgia, serif', anchor },
+    ]);
+  });
+
   it('does not assemble or normalize every obstacle for each fast preview edge', () => {
     const parsed = validateDocument(JSON.parse(readFileSync(fixturePath, 'utf8')));
     if (!parsed.ok) throw new Error('Invalid fixture');
@@ -70,7 +127,7 @@ describe('buildSceneDescription', () => {
     expect(groups.filter((group) => group.role === 'zone')).toHaveLength(3);
     expect(groups.filter((group) => group.role === 'node')).toHaveLength(6);
     expect(groups.filter((group) => group.role === 'edge')).toHaveLength(7);
-    expect(items.find((item) => item.id === 'artboard-background')).toBeUndefined();
+    expect(items.find((item) => item.id === 'artboard-background')).toMatchObject({ type: 'rect', fill: '#F4F7FB' });
     expect(items.find((item) => item.id === 'artboard-dot-grid')).toBeUndefined();
     expect(scene.connectors).toHaveLength(7);
     expect(groups.find((group) => group.entityId === 'edge.ingress-audit')?.children).toEqual(
@@ -401,6 +458,29 @@ describe('buildSceneDescription', () => {
     const items = collectItems(buildSceneDescription(document).items);
     expect(items.find((item) => item.id === 'artboard-header')).toBeUndefined();
     expect(items.find((item) => item.id === 'flow-legend')).toBeUndefined();
+  });
+
+  it.each([
+    { backgroundColor: undefined, expected: '#0B0F17' },
+    { backgroundColor: '#F4F7FB', expected: '#F4F7FB' },
+    { backgroundColor: '#FFF4E6', expected: '#FFF4E6' },
+    { backgroundColor: null, expected: null },
+  ])('renders page background $backgroundColor independently of tab color and theme', ({ backgroundColor, expected }) => {
+    const validation = validateDocument(JSON.parse(readFileSync(fixturePath, 'utf8')));
+    if (!validation.ok) throw new Error('Invalid fixture');
+    const document = validation.document;
+    const page = document.pages['page.architecture'];
+    if (page === undefined) throw new Error('Missing fixture page');
+    page.color = '#7C3AED';
+    if (backgroundColor !== undefined) page.backgroundColor = backgroundColor;
+    document.theme = { presetId: 'openchart-dark', tokens: { canvas: '#0B0F17' } };
+    document.layout.overrides['system.northstar'] = { x: -100, y: -100, width: 240, height: 120 };
+    const scene = buildSceneDescription(document);
+    const items = collectItems(scene.items);
+    const background = items.find((item) => item.id === 'artboard-background');
+    if (expected === null) expect(background).toBeUndefined();
+    else expect(background).toMatchObject({ type: 'rect', fill: expected, frame: scene.bounds });
+    expect(items.some((item) => item.type === 'dot-grid')).toBe(false);
   });
 
   it('projects document theme tokens through the shared scene', () => {

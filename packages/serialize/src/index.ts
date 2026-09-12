@@ -1,4 +1,5 @@
 import type { OpenChartDocument } from '@openchart/ir';
+export { exportDocumentToOpenChartCode, parseOpenChartCode, OpenChartCodeError, OPENCHART_CODE_EXAMPLE, OPENCHART_CODE_GUIDE } from './openchart-code.js';
 import {
   buildSceneDescription,
   safeHttpUrl,

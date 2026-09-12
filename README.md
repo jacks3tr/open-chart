@@ -77,8 +77,8 @@ Cancel leaves the document unchanged, and one undo reverses an applied pass.
 artboard. Native exports use a Save dialog; browser exports download files.
 SVG preserves object hyperlinks. PowerPoint contains SVG artwork with a PNG
 fallback, not individually editable PowerPoint shapes. D2 and Mermaid are text
-projections with reported fidelity limitations; use `.openchart.json` to retain
-the full editable document.
+projections with reported fidelity limitations. Use `.openchart.json` or native
+`.openchart` code to retain the full editable document.
 
 ## CLI and MCP
 
@@ -92,13 +92,19 @@ npm run openchart -- export svg ./examples/northstar-integration.openchart.json 
 npm run openchart -- apply ./ops.json ./diagram.openchart.json
 
 # Serve a document through MCP over standard input/output.
-npm run openchart -- mcp --stdio ./diagram.openchart.json
+npm run --silent openchart -- mcp --stdio ./diagram.openchart.json
 ```
 
 `ops.json` is an operation envelope, not a replacement document. Successful
 file mutations write a journal and replace the document atomically. Failures
 produce structured JSON on stderr. CLI export refuses to overwrite an existing
 output file.
+
+Agents can also create diagrams with native `.openchart` code and load them with
+Open, or call MCP directly. `get_code_format` exposes the syntax and schema;
+`apply_code` applies a complete diagram as one undoable transaction. Read
+[Create diagrams with code or MCP](docs/AGENT_DIAGRAMS.md) for setup, examples,
+and exact code/GUI round trips.
 
 The native app exposes its live document through an authenticated loopback MCP
 host. Discovery information, including a bearer token, lives in

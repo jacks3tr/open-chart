@@ -3,6 +3,7 @@ import { open, save, confirm } from '@tauri-apps/plugin-dialog';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { validateDocument, type OpenChartDocument } from '@openchart/ir';
 import { safeHttpUrl } from '@openchart/scene';
+import { exportDocumentToOpenChartCode, parseOpenChartCode } from '@openchart/serialize';
 
 export async function guardDesktopClose(isDirty: () => boolean): Promise<() => void> {
   const window = getCurrentWindow();
@@ -46,6 +47,7 @@ export function isDesktopRuntime(): boolean {
 }
 
 export function parseDesktopDocument(contents: string): OpenChartDocument {
+  if (!contents.trimStart().startsWith('{')) return parseOpenChartCode(contents);
   let input: unknown;
   try {
     input = JSON.parse(contents);
@@ -63,7 +65,8 @@ export function parseDesktopDocument(contents: string): OpenChartDocument {
   return validation.document;
 }
 
-export function serializeOpenChartDocument(document: OpenChartDocument): string {
+export function serializeOpenChartDocument(document: OpenChartDocument, format: 'json' | 'openchart' = 'json'): string {
+  if (format === 'openchart') return exportDocumentToOpenChartCode(document);
   return `${JSON.stringify(document, null, 2)}\n`;
 }
 
@@ -72,7 +75,7 @@ export async function openDesktopDocument(): Promise<DesktopDocumentFile | undef
     title: 'Open an OpenChart document',
     multiple: false,
     directory: false,
-    filters: [{ name: 'OpenChart document', extensions: ['json'] }],
+    filters: [{ name: 'OpenChart document', extensions: ['json', 'openchart'] }],
   });
   if (path === null) {
     return undefined;
@@ -104,6 +107,6 @@ export async function writeDesktopDocument(
 ): Promise<void> {
   await invoke('write_document', {
     path,
-    contents: serializeOpenChartDocument(document),
+    contents: serializeOpenChartDocument(document, path.toLowerCase().endsWith('.openchart') ? 'openchart' : 'json'),
   });
 }

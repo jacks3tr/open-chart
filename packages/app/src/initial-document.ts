@@ -10,6 +10,7 @@ export function createBlankInitialDocument(document: OpenChartDocument): OpenCha
     edges: {},
     layout: {
       ...document.layout,
+      options: { ...document.layout.options, showDocumentChrome: false },
       overrides: {},
       edgeOverrides: {},
       derived: null,

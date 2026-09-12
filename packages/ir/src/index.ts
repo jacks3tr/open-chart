@@ -26,6 +26,7 @@ export const PageSchema = z
     name: z.string(),
     order: z.number().int().nonnegative().optional(),
     color: z.string().min(1).optional(),
+    backgroundColor: z.string().regex(/^#[0-9a-f]{6}$/i).nullable().optional(),
     layerIds: z.array(idSchema).min(1),
   })
   .strict();

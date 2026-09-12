@@ -69,12 +69,14 @@ describe('OpenChart MCP contract', () => {
     const { client, documentPath } = await connectClient();
 
     const listed = await client.listTools();
-    expect(listed.tools.map((tool) => tool.name)).toEqual([
+    expect(listed.tools.map((tool) => tool.name).sort()).toEqual([
       'apply_beauty_pass',
+      'apply_code',
       'apply_layout',
       'apply_operations',
       'export',
       'find_nodes',
+      'get_code_format',
       'get_document_info',
       'get_history',
       'get_nodes',
@@ -368,7 +370,7 @@ describe('OpenChart MCP contract', () => {
     }
   }, 30_000);
 
-  it('serves the same registry through the socket-free HTTP handler', async () => {
+  it.each([false, true])('serves the same registry through HTTP with legacy=%s', async (legacy) => {
     const directory = await mkdtemp(join(tmpdir(), 'openchart-mcp-http-'));
     temporaryDirectories.push(directory);
     const documentPath = join(directory, 'northstar.openchart.json');
@@ -390,18 +392,20 @@ describe('OpenChart MCP contract', () => {
         name: 'openchart-http-contract-test',
         version: '1.0.0',
       },
-      { versionNegotiation: { mode: { pin: '2026-07-28' } } },
+      legacy ? {} : { versionNegotiation: { mode: { pin: '2026-07-28' } } },
     );
     await client.connect(transport);
     closeCallbacks.push(async () => client.close(), async () => handler.close());
 
     const listed = await client.listTools();
-    expect(listed.tools.map((tool) => tool.name)).toEqual([
+    expect(listed.tools.map((tool) => tool.name).sort()).toEqual([
       'apply_beauty_pass',
+      'apply_code',
       'apply_layout',
       'apply_operations',
       'export',
       'find_nodes',
+      'get_code_format',
       'get_document_info',
       'get_history',
       'get_nodes',

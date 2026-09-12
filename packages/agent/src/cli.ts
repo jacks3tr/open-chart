@@ -9,6 +9,7 @@ import {
   PersistenceError,
 } from '@openchart/persistence';
 import { validateOperationEnvelope } from '@openchart/ops';
+import { exportDocumentToOpenChartCode, parseOpenChartCode } from '@openchart/serialize';
 import {
   DOCUMENT_EXPORT_FORMATS,
   DocumentExportError,
@@ -24,7 +25,7 @@ import { startOpenChartWindowsMcpHost } from './windows-host.js';
 
 const MAX_ERROR_DETAIL_LENGTH = 240;
 const USAGE =
-  'Usage: openchart apply <ops.json> <diagram.openchart.json> | openchart export <svg|png|jpeg|pdf|pptx> <diagram.openchart.json> <output> [--page <id>] [--scale <1-16>] [--transparent] [--include-ir] [--quality <1-100>] | openchart mcp (--stdio | --http) <diagram.openchart.json>';
+  'Usage: openchart create <diagram.openchart.json> | openchart import <source.openchart> <diagram.openchart.json> | openchart apply <ops.json> <diagram.openchart.json> | openchart export <openchart|svg|png|jpeg|pdf|pptx> <diagram.openchart.json> <output> [--page <id>] [--scale <1-16>] [--transparent] [--include-ir] [--quality <1-100>] | openchart mcp (--stdio | --http) <diagram.openchart.json>';
 
 function boundedDetail(value: unknown): string {
   let detail: string;
@@ -115,6 +116,43 @@ async function writeNewFileAtomically(outputPath: string, data: Buffer): Promise
 }
 
 export async function runCli(args: readonly string[]): Promise<number> {
+  if (args[0] === 'create' || args[0] === 'import') {
+    const outputPath = args[0] === 'create' ? args[1] : args[2];
+    if (outputPath === undefined || args.length !== (args[0] === 'create' ? 2 : 3)) {
+      emitFailure('USAGE_ERROR', USAGE);
+      return 2;
+    }
+    try {
+      const source = args[0] === 'create' ? 'openchart 1' : await readFile(args[1] ?? '', 'utf8');
+      const document = parseOpenChartCode(source);
+      const destination = await writeNewFileAtomically(outputPath, Buffer.from(`${JSON.stringify(document, null, 2)}\n`));
+      emit({ ok: true, documentId: document.documentId, outputPath: destination }, process.stdout);
+      return 0;
+    } catch (error: unknown) {
+      emitFailure('DOCUMENT_CREATE_FAILED', boundedDetail(error));
+      return 1;
+    }
+  }
+
+  if (args[0] === 'export' && args[1] === 'openchart') {
+    const documentPath = args[2];
+    const outputPath = args[3];
+    if (args.length !== 4 || documentPath === undefined || outputPath === undefined) {
+      emitFailure('USAGE_ERROR', USAGE);
+      return 2;
+    }
+    try {
+      const session = await OpenChartDocumentSession.open(documentPath);
+      const code = exportDocumentToOpenChartCode(session.document);
+      const destination = await writeNewFileAtomically(outputPath, Buffer.from(code));
+      emit({ ok: true, format: 'openchart', outputPath: destination }, process.stdout);
+      return 0;
+    } catch (error: unknown) {
+      emitFailure('EXPORT_FAILED', boundedDetail(error));
+      return 1;
+    }
+  }
+
   if (args[0] === 'mcp') {
     if (
       args.length !== 3 ||

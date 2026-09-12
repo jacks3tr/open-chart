@@ -6,7 +6,9 @@ import {
   type ToolAnnotations,
 } from '@modelcontextprotocol/server';
 import { TOKEN_PRESET_IDS } from '@openchart/derive';
+import { DocumentSchema } from '@openchart/ir';
 import { OperationEnvelopeSchema } from '@openchart/ops';
+import { OPENCHART_CODE_EXAMPLE, OPENCHART_CODE_GUIDE } from '@openchart/serialize';
 import { z } from 'zod';
 
 import type { ProposeD2ImportInput } from './d2-proposal.js';
@@ -49,7 +51,7 @@ const EMPTY_INPUT_SCHEMA = z.object({}).strict();
 
 const EXPORT_TEXT_INPUT_SCHEMA = z
   .object({
-    format: z.enum(['d2', 'mermaid']),
+    format: z.enum(['d2', 'mermaid', 'openchart']),
     pageId: z.string().min(1).optional(),
   })
   .strict();
@@ -140,6 +142,10 @@ const DERIVED_MUTATION_INPUT_SCHEMA = OperationEnvelopeSchema.pick({
 })
   .extend({ dryRun: z.boolean().optional() })
   .strict();
+
+const APPLY_CODE_INPUT_SCHEMA = DERIVED_MUTATION_INPUT_SCHEMA.extend({
+  source: z.string().min(1).max(1024 * 1024),
+}).strict();
 
 const LAYOUT_MODE_SCHEMA = z.enum(['layered', 'tree', 'radial', 'force']);
 const LAYOUT_DIRECTION_SCHEMA = z.enum(['RIGHT', 'DOWN']);
@@ -380,6 +386,28 @@ export function createOpenChartMcpServer(
   const server = new McpServer(SERVER_INFO);
 
   server.registerTool(
+    'apply_code',
+    {
+      title: 'Apply OpenChart code',
+      description: 'Replace the complete diagram content from native OpenChart code in one undoable transaction. Retains document identity. Read get_code_format for syntax and get_document_info for baseRev. Defaults to a preview; set dryRun=false to persist.',
+      inputSchema: APPLY_CODE_INPUT_SCHEMA,
+      annotations: APPLY_ANNOTATIONS,
+    },
+    (input) => invoke(() => kernel.applyCode({ ...derivedMutationFields(input), source: input.source })),
+  );
+
+  server.registerTool(
+    'get_code_format',
+    {
+      title: 'Get OpenChart code format',
+      description: 'Read native diagram-code syntax, a complete example, and the authoritative document schema. Use this to author code or discover every property available to apply_operations.',
+      inputSchema: EMPTY_INPUT_SCHEMA,
+      annotations: READ_ANNOTATIONS,
+    },
+    () => response({ format: 'openchart', extension: '.openchart', guide: OPENCHART_CODE_GUIDE, example: OPENCHART_CODE_EXAMPLE, schema: z.toJSONSchema(DocumentSchema) }),
+  );
+
+  server.registerTool(
     'apply_beauty_pass',
     {
       title: 'Apply OpenChart Beauty Pass',
@@ -422,7 +450,7 @@ export function createOpenChartMcpServer(
     {
       title: 'Export OpenChart text projection',
       description:
-        'Return a bounded D2 or Mermaid projection with explicit semantic-loss reporting; no file is written.',
+        'Return native OpenChart code for the whole document with full fidelity, or a D2 or Mermaid page projection with loss reporting. Omit pageId for format=openchart. No file is written.',
       inputSchema: EXPORT_TEXT_INPUT_SCHEMA,
       annotations: READ_ANNOTATIONS,
     },
@@ -557,7 +585,7 @@ export function createOpenChartMcpHandler(
   kernel: OpenChartToolKernel,
 ): McpHttpHandler {
   return createMcpHandler(() => createOpenChartMcpServer(kernel), {
-    legacy: 'reject',
+    legacy: 'stateless',
     responseMode: 'json',
   });
 }

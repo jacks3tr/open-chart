@@ -10,7 +10,5 @@ import type { OpenChartToolKernel } from './tools.js';
 export function serveOpenChartMcpStdio(
   kernel: OpenChartToolKernel,
 ): StdioServerHandle {
-  return serveStdio(() => createOpenChartMcpServer(kernel), {
-    legacy: 'reject',
-  });
+  return serveStdio(() => createOpenChartMcpServer(kernel));
 }

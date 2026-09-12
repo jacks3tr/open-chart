@@ -355,6 +355,31 @@ describe('direct connector manipulation', () => {
     expect(style.fontSize).toBe(20);
   });
 
+  it.each([
+    ['above', 1], ['below', 50], ['on', 24.5],
+  ] as const)('places the complete label box %s the line with or without a dragged position', (labelPlacement, expectedY) => {
+    const engine = new OperationEngine(connectorDocument());
+    expect(engine.apply(createEnvelope(engine.document, 'tx.create'))).toMatchObject({ ok: true });
+    const edgeId = firstEdgeId(engine.document);
+    for (const labelT of [undefined, 0.5]) {
+      expect(engine.apply({ txId: `tx.place-${labelT}`, actor: 'user', origin: 'gui', baseRev: engine.document.rev,
+        ops: [
+          { op: 'set_edge_label', id: edgeId, label: 'API' },
+          { op: 'set_edge_layout', id: edgeId, layout: { labelPlacement, ...(labelT === undefined ? {} : { labelT }) } },
+        ],
+      }).ok).toBe(true);
+      const scene = buildSceneDescription(engine.document, { pageId: 'page.main', routingStrategy: 'fast' });
+      const background = findEdgeLabelBackground(scene.items, edgeId);
+      const connector = scene.connectors?.find((item) => item.edgeId === edgeId);
+      expect(background?.frame.y).toBe(expectedY);
+      if (background === undefined || connector === undefined) throw new Error('Expected connector label');
+      const editor = connectorLabelEditorStyle(engine.document, {
+        edgeId, points: connector.points, labelT: labelT ?? 0.5, value: 'API', camera: { x: 0, y: 0, zoom: 1 },
+      });
+      expect(Number(editor?.top) + Number(editor?.height) / 2).toBe(background.frame.y + background.frame.height / 2);
+    }
+  });
+
   it('double-click label path commits canonical label ops and text edit round-trips through undo', () => {
     const engine = new OperationEngine(connectorDocument());
     expect(engine.apply(createEnvelope(engine.document, 'tx.create'))).toMatchObject({ ok: true });

@@ -29,7 +29,7 @@ function templateDocument(base: OpenChartDocument, template: StarterTemplateDefi
 }
 
 export function OpenChartWebsite({ base }: { base: OpenChartDocument }) {
-  const [active, setActive] = useState<OpenChartDocument>();
+  const [active, setActive] = useState<{ document: OpenChartDocument; filename?: string }>();
   const [home, setHome] = useState(true);
   const [session, setSession] = useState(0);
   const [category, setCategory] = useState('All templates');
@@ -40,9 +40,9 @@ export function OpenChartWebsite({ base }: { base: OpenChartDocument }) {
     return { template, document, preview: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(renderDocumentToSvg(document))}` };
   }), [base]);
 
-  function open(document: OpenChartDocument) {
+  function open(document: OpenChartDocument, filename?: string) {
     if (active && !window.confirm('Start another diagram? Download your current work first if you want to keep it.')) return;
-    setActive(document); setSession((value) => value + 1); setHome(false); setError('');
+    setActive({ document, ...(filename === undefined ? {} : { filename }) }); setSession((value) => value + 1); setHome(false); setError('');
   }
 
   return <div className="web-shell" onKeyDownCapture={home ? (event) => event.stopPropagation() : undefined}>
@@ -52,9 +52,9 @@ export function OpenChartWebsite({ base }: { base: OpenChartDocument }) {
     </header>
     <main className="web-home" hidden={!home}>
       <div className="web-heading"><h1>Diagrams</h1><div className="web-actions"><button className="web-button web-secondary" onClick={() => input.current?.click()}><Icon src={folder} />Open file</button><button className="web-button web-primary" onClick={() => open(createBlankInitialDocument(base))}><Icon src={plus} />New diagram</button></div></div>
-      <input ref={input} type="file" accept=".json,.openchart.json,application/json" hidden onChange={(event) => {
+      <input ref={input} type="file" accept=".json,.openchart.json,.openchart,application/json" hidden onChange={(event) => {
         const selected = event.currentTarget.files?.[0]; event.currentTarget.value = '';
-        if (selected) void selected.text().then((text) => open(parseDesktopDocument(text))).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'Unable to open this file.'));
+        if (selected) void selected.text().then((text) => open(parseDesktopDocument(text), selected.name)).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'Unable to open this file.'));
       }} />
       {error && <p role="alert" className="web-error">{error}</p>}
       {active && <button className="web-resume" onClick={() => setHome(false)}>Your diagram is still open. <strong>Return to editor →</strong></button>}
@@ -76,6 +76,6 @@ export function OpenChartWebsite({ base }: { base: OpenChartDocument }) {
       <section className="web-export" aria-labelledby="export-title"><div className="web-export-icon"><Icon src={download} /></div><div><h2 id="export-title">Export</h2><p>Download from the editor. Save as JSON to edit later.</p></div><div className="web-formats">{['SVG', 'PNG', 'PDF', 'PPTX', 'JSON'].map((format) => <span key={format}><Icon src={file} />{format}</span>)}</div></section>
 
     </main>
-    {active && <div className="web-editor" hidden={home}><OpenChartEditor key={session} initialDocument={active} /></div>}
+    {active && <div className="web-editor" hidden={home}><OpenChartEditor key={session} initialDocument={active.document} {...(active.filename === undefined ? {} : { initialFilename: active.filename })} /></div>}
   </div>;
 }

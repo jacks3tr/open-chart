@@ -22,7 +22,7 @@ fn document_path(path: &str) -> Result<PathBuf, String> {
         .file_name()
         .and_then(|value| value.to_str())
         .ok_or_else(|| "The document path has no valid file name".to_string())?;
-    if !path.is_absolute() || !filename.to_ascii_lowercase().ends_with(".openchart.json") {
+    if !path.is_absolute() || !(filename.to_ascii_lowercase().ends_with(".openchart.json") || filename.to_ascii_lowercase().ends_with(".openchart")) {
         return Err("OpenChart documents must use an absolute .openchart.json path".to_string());
     }
     Ok(path)
@@ -155,7 +155,7 @@ fn open_external_link(url: String) -> Result<(), String> {
 fn write_export(path: String, bytes: Vec<u8>) -> Result<(), String> {
     let path = PathBuf::from(path);
     let extension = path.extension().and_then(|value| value.to_str()).unwrap_or("").to_ascii_lowercase();
-    if !path.is_absolute() || !matches!(extension.as_str(), "svg" | "png" | "jpg" | "jpeg" | "pdf" | "pptx" | "d2" | "mmd") {
+    if !path.is_absolute() || !matches!(extension.as_str(), "svg" | "png" | "jpg" | "jpeg" | "pdf" | "pptx" | "d2" | "mmd" | "openchart") {
         return Err("Choose an absolute path with a supported export extension".to_string());
     }
     if bytes.is_empty() || bytes.len() > 64 * 1024 * 1024 {
@@ -187,6 +187,12 @@ mod tests {
         let bytes = vec![137, 80, 78, 71, 0, 255];
         write_export(export.to_string_lossy().into_owned(), bytes.clone()).expect("save binary export");
         assert_eq!(fs::read(export).expect("read export"), bytes);
+        let code = directory.join("diagram.openchart");
+        let code_path = code.to_string_lossy().into_owned();
+        write_document(code_path.clone(), "openchart 1\nnode api\n".to_string()).expect("save code");
+        assert_eq!(read_document(code_path.clone()).expect("open code"), "openchart 1\nnode api\n");
+        write_export(code_path.clone(), b"openchart 1\nnode database\n".to_vec()).expect("export code");
+        assert_eq!(read_document(code_path).expect("open exported code"), "openchart 1\nnode database\n");
         fs::remove_dir_all(directory).expect("remove test directory");
     }
 }

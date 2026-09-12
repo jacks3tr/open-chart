@@ -103,6 +103,7 @@ describe('shape discovery and insertion', () => {
       exportFormat: 'png',
       exportScale: 2,
       canvasNavigation: false,
+      gridVisible: true,
       recentShapes: [],
       favoriteShapes: [],
     };
@@ -110,6 +111,13 @@ describe('shape discovery and insertion', () => {
     const restored = parseEditorPreferences(serializeEditorPreferences({ ...base, favoriteShapes }));
     expect(restored.favoriteShapes).toEqual([favorite]);
     expect(toggleFavoriteCatalogShape(restored.favoriteShapes, favorite)).toEqual([]);
+  });
+
+  it('remembers grid visibility while keeping the grid on for older preferences', () => {
+    expect(parseEditorPreferences(null).gridVisible).toBe(true);
+    expect(parseEditorPreferences('{"exportScale":4}').gridVisible).toBe(true);
+    const preferences = { ...parseEditorPreferences(null), gridVisible: false };
+    expect(parseEditorPreferences(serializeEditorPreferences(preferences)).gridVisible).toBe(false);
   });
 
   it('filters multi-term searches across diagram shapes and decorative icons', () => {

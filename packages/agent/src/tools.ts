@@ -18,15 +18,18 @@ import type {
   Page,
   Port,
 } from '@openchart/ir';
-import type {
-  CommittedTransaction,
-  Operation,
-  OperationEnvelope,
+import {
+  DocumentContentSchema,
+  type CommittedTransaction,
+  type Operation,
+  type OperationEnvelope,
 } from '@openchart/ops';
 import type { JournalOperationRecord } from '@openchart/persistence';
 import {
   exportDocumentToD2,
   exportDocumentToMermaid,
+  exportDocumentToOpenChartCode,
+  parseOpenChartCode,
   type TextProjectionLoss,
 } from '@openchart/serialize';
 
@@ -221,7 +224,7 @@ export type GetOperationsResult =
   | GetOperationsSuccess
   | (ToolInputFailure & GetOperationsSuccess);
 
-export type ExportTextFormat = 'd2' | 'mermaid';
+export type ExportTextFormat = 'd2' | 'mermaid' | 'openchart';
 
 export interface ExportTextInput {
   readonly format: ExportTextFormat;
@@ -230,7 +233,7 @@ export interface ExportTextInput {
 
 export interface ExportTextSuccess {
   readonly format: ExportTextFormat;
-  readonly pageId: string;
+  readonly pageId: string | null;
   readonly mimeType: 'text/plain';
   readonly content: string;
   readonly losses: readonly TextProjectionLoss[];
@@ -278,6 +281,10 @@ export interface DerivedMutationInput {
   readonly txId: string;
   readonly idempotencyKey?: string;
   readonly dryRun?: boolean;
+}
+
+export interface ApplyCodeInput extends DerivedMutationInput {
+  readonly source: string;
 }
 
 export interface ApplyLayoutInput extends DerivedMutationInput {
@@ -569,6 +576,15 @@ function changedIdsFromTransaction(
       }
     }
   }
+  for (const patch of [...transaction.forwardPatches, ...transaction.inversePatches]) {
+    const [root] = patch.path;
+    if (patch.path.length === 1 && ['pages', 'layers', 'nodes', 'ports', 'edges', 'styles'].includes(String(root)) && 'value' in patch) {
+      const value: unknown = patch.value;
+      if (value !== null && typeof value === 'object') {
+        for (const id of Object.keys(value)) changed.add(id);
+      }
+    }
+  }
   return changed;
 }
 
@@ -576,6 +592,11 @@ function changedIdsFromOperations(operations: readonly Operation[]): Set<string>
   const changed = new Set<string>();
   for (const operation of operations) {
     switch (operation.op) {
+      case 'replace_document_content':
+        for (const entities of [operation.content.pages, operation.content.layers, operation.content.styles, operation.content.nodes, operation.content.ports, operation.content.edges]) {
+          for (const id of Object.keys(entities)) changed.add(id);
+        }
+        break;
       case 'set_document_title':
         break;
       case 'create_page':
@@ -607,6 +628,7 @@ function changedIdsFromOperations(operations: readonly Operation[]): Set<string>
         break;
       case 'rename_page':
       case 'set_page_color':
+      case 'set_page_background':
       case 'set_page_order':
       case 'delete_page':
       case 'rename_layer':
@@ -666,11 +688,14 @@ function transactionResult(
   };
 }
 
-function deleteCount(operations: readonly Operation[]): number {
+function deleteCount(operations: readonly Operation[], document: OpenChartDocument): number {
   return operations.reduce(
     (count, operation) =>
       count +
-      (operation.op === 'delete_page' ||
+      (operation.op === 'replace_document_content'
+        ? (['pages', 'layers', 'styles', 'nodes', 'ports', 'edges'] as const).reduce(
+            (removed, kind) => removed + Object.keys(document[kind]).filter((id) => !Object.hasOwn(operation.content[kind], id)).length, 0)
+        : operation.op === 'delete_page' ||
       operation.op === 'delete_layer' ||
       operation.op === 'delete_node' ||
       operation.op === 'delete_port' ||
@@ -915,9 +940,9 @@ export class OpenChartToolKernel {
     if (!input || typeof input !== 'object') {
       return { ...inputFailure('Export input must be an object'), ...empty };
     }
-    if (input.format !== 'd2' && input.format !== 'mermaid') {
+    if (input.format !== 'd2' && input.format !== 'mermaid' && input.format !== 'openchart') {
       return {
-        ...inputFailure('format must be d2 or mermaid', 'format'),
+        ...inputFailure('format must be d2, mermaid, or openchart', 'format'),
         ...empty,
       };
     }
@@ -928,10 +953,15 @@ export class OpenChartToolKernel {
       };
     }
 
-    let projection: ReturnType<typeof exportDocumentToD2>;
+    if (input.format === 'openchart' && input.pageId !== undefined) {
+      return { ...inputFailure('OpenChart code exports the whole document; omit pageId', 'pageId'), ...empty };
+    }
+    let projection: Pick<ExportTextSuccess, 'content' | 'losses' | 'pageId'>;
     try {
       projection =
-        input.format === 'd2'
+        input.format === 'openchart'
+          ? { content: exportDocumentToOpenChartCode(this.#session.document), pageId: null, losses: [] }
+          : input.format === 'd2'
           ? exportDocumentToD2(this.#session.document, {
               ...(input.pageId === undefined ? {} : { pageId: input.pageId }),
             })
@@ -1519,6 +1549,21 @@ export class OpenChartToolKernel {
     };
   }
 
+  public async applyCode(input: ApplyCodeInput): Promise<ApplyOperationsResult> {
+    const dryRun = input?.dryRun ?? true;
+    const invalid = validateMutationIdentity(input, 'Code');
+    if (invalid !== null) return { ...invalid, dryRun, rev: this.#session.document.rev };
+    if (typeof input.source !== 'string' || new TextEncoder().encode(input.source).byteLength > MAX_TEXT_PROJECTION_BYTES) {
+      return { ...inputFailure('source must be OpenChart code within 1 MiB', 'source'), dryRun, rev: this.#session.document.rev };
+    }
+    try {
+      const document = parseOpenChartCode(input.source, { reservedUid: this.#session.document.uid });
+      return this.applyOperations({ ...input, ops: [{ op: 'replace_document_content', content: DocumentContentSchema.strip().parse(document) }] });
+    } catch (error: unknown) {
+      return { ...inputFailure(boundedMessage(error), 'source'), dryRun, rev: this.#session.document.rev };
+    }
+  }
+
   public async applyOperations(
     input: ApplyOperationsInput,
   ): Promise<ApplyOperationsResult> {
@@ -1533,7 +1578,7 @@ export class OpenChartToolKernel {
     }
 
     const currentRev = getCurrentRev(this.#session);
-    const deletes = deleteCount(input.ops);
+    const deletes = deleteCount(input.ops, this.#session.document);
     if (!dryRun && deletes > MAX_DELETE_BATCH) {
       return {
         ok: false,

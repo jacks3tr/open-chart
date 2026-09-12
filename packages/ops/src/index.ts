@@ -10,6 +10,7 @@ import {
 } from 'immer';
 import {
   ContainerSettingsSchema,
+  DocumentSchema,
   EdgeLayoutOverrideSchema,
   EdgeRoutingSchema,
   EdgeSchema,
@@ -42,11 +43,20 @@ import { z, type ZodIssue } from 'zod';
 
 enablePatches();
 
+export const DocumentContentSchema = DocumentSchema.pick({
+  title: true, pages: true, layers: true, styles: true, nodes: true,
+  ports: true, edges: true, theme: true, layout: true,
+});
+
+export type DocumentContent = z.infer<typeof DocumentContentSchema>;
+
 export type Operation =
+  | { readonly op: 'replace_document_content'; readonly content: DocumentContent }
   | { readonly op: 'set_document_title'; readonly title: string }
   | { readonly op: 'create_page'; readonly page: Page; readonly baseLayer: Layer }
   | { readonly op: 'rename_page'; readonly id: string; readonly name: string }
   | { readonly op: 'set_page_color'; readonly id: string; readonly color: string | null }
+  | { readonly op: 'set_page_background'; readonly id: string; readonly color: string | null }
   | { readonly op: 'set_page_order'; readonly id: string; readonly order: number | null }
   | { readonly op: 'delete_page'; readonly id: string }
   | { readonly op: 'create_layer'; readonly layer: Layer; readonly index?: number }
@@ -125,6 +135,7 @@ const idSchema = z.string().regex(ID_PATTERN, {
 const jsonRecordSchema = z.record(z.string(), z.json());
 
 const operationSchema = z.discriminatedUnion('op', [
+  z.object({ op: z.literal('replace_document_content'), content: DocumentContentSchema }).strict(),
   z.object({ op: z.literal('set_document_title'), title: z.string().trim().min(1) }).strict(),
   z
     .object({
@@ -134,6 +145,7 @@ const operationSchema = z.discriminatedUnion('op', [
     })
     .strict(),
   z.object({ op: z.literal('rename_page'), id: idSchema, name: z.string() }).strict(),
+  z.object({ op: z.literal('set_page_background'), id: idSchema, color: PageSchema.shape.backgroundColor.unwrap() }).strict(),
   z
     .object({
       op: z.literal('set_page_color'),
@@ -528,6 +540,11 @@ function applyOperations(
     const path = `ops.${index}`;
 
     switch (operation.op) {
+      case 'replace_document_content': {
+        Object.assign(document, clone(operation.content));
+        if (operation.content.theme === undefined) delete document.theme;
+        return;
+      }
       case 'set_document_title': {
         document.title = operation.title;
         return;
@@ -575,6 +592,11 @@ function applyOperations(
         } else {
           page.color = operation.color;
         }
+        return;
+      }
+      case 'set_page_background': {
+        const page = requirePage(document, operation.id, `${path}.id`);
+        page.backgroundColor = operation.color;
         return;
       }
       case 'set_page_order': {

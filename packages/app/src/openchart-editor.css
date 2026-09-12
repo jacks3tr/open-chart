@@ -746,12 +746,20 @@ button.is-active .oc-icon { opacity: 1; }
   inset: 0;
   overflow: hidden;
   background-color: #fff;
+  box-shadow: inset 0 0 0 1px #eef0f2;
+}
+
+.oc-canvas-grid {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
   background-image:
     linear-gradient(rgba(166, 174, 184, .10) 1px, transparent 1px),
     linear-gradient(90deg, rgba(166, 174, 184, .10) 1px, transparent 1px);
   background-size: 16px 16px;
-  box-shadow: inset 0 0 0 1px #eef0f2;
 }
+
+.oc-grid-hidden .oc-canvas-grid { display: none; }
 
 .oc-canvas-layer { position: absolute; inset: 0; display: block; }
 .oc-canvas-overlay { touch-action: none; }
@@ -852,7 +860,7 @@ button.is-active .oc-icon { opacity: 1; }
 .oc-inspector-tabs {
   height: 36px;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr 36px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -866,6 +874,12 @@ button.is-active .oc-icon { opacity: 1; }
 }
 
 .oc-inspector-tabs button:hover { background: var(--surface-hover); }
+
+.oc-inspector-tabs .oc-inspector-collapse {
+  display: grid;
+  place-items: center;
+  color: var(--text);
+}
 
 .oc-inspector-tabs button.is-active {
   border-bottom-color: var(--blue);
@@ -1072,9 +1086,9 @@ button.is-active .oc-icon { opacity: 1; }
 .oc-alt-text-field { align-items: stretch; }
 .oc-alt-text-field > span { align-self: center; }
 
-.oc-alt-text-field textarea {
+.oc-field textarea {
   min-width: 0;
-  min-height: 64px;
+  min-height: 42px;
   resize: vertical;
   padding: 7px;
   border: 0;
@@ -1084,6 +1098,8 @@ button.is-active .oc-icon { opacity: 1; }
   font-size: 10px;
   line-height: 1.4;
 }
+
+.oc-alt-text-field textarea { min-height: 64px; }
 
 .oc-text-format {
   display: grid;
@@ -1333,7 +1349,7 @@ kbd { font: 600 9px "IBM Plex Mono", monospace; }
   font-size: 9px;
 }
 
-.oc-page-menu input {
+.oc-page-menu > label input {
   height: 32px;
   padding: 0 7px;
   border: 1px solid var(--border);
@@ -1355,6 +1371,11 @@ kbd { font: 600 9px "IBM Plex Mono", monospace; }
 .oc-page-color-picker > div { display: flex; gap: 6px; }
 .oc-page-color-picker button { width: 19px; height: 19px; border: 2px solid transparent; border-radius: 50%; cursor: pointer; }
 .oc-page-color-picker button.is-active { border-color: #fff; box-shadow: 0 0 0 2px #6b7785; }
+
+.oc-page-background { display: grid; gap: 10px; margin-top: 12px; }
+.oc-page-view-options { display: flex; align-items: center; gap: 20px; font-size: 10px; }
+.oc-page-view-options label { display: flex; align-items: center; gap: 6px; cursor: pointer; }
+.oc-page-view-options input { width: 14px; height: 14px; margin: 0; accent-color: var(--blue); }
 
 .oc-page-menu-actions {
   display: grid;

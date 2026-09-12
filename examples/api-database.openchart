@@ -1,0 +1,7 @@
+openchart 1
+document {"title":"API and database"}
+node api {"label":"API","kind":"service"}
+node database {"label":"Database","kind":"database"}
+edge query api -> database {"label":"SQL"}
+place api {"x":80,"y":120,"width":200,"height":120}
+place database {"x":400,"y":120,"width":200,"height":120}

@@ -23,6 +23,7 @@ export default tseslint.config(
       '**/node_modules/**',
       '**/target/**',
       '**/coverage/**',
+      '.openchart-acceptance/**',
       'packages/shapes/generated/**',
       'scripts/run-render-benchmark.mjs',
       'eslint.config.mjs',

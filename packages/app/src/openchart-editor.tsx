@@ -88,6 +88,7 @@ import {
 } from '@openchart/render';
 import {
   buildSceneDescription,
+  edgeStyle,
   resolveDocumentLayout,
   safeHttpUrl,
   type SceneConnectorGeometry,
@@ -148,6 +149,7 @@ import { createBlankInitialDocument } from './initial-document.js';
 
 export interface OpenChartEditorProps {
   readonly initialDocument: OpenChartDocument;
+  readonly initialFilename?: string;
 }
 
 type EditorTool = 'select' | 'connector' | 'pan' | 'lasso';
@@ -192,6 +194,7 @@ export interface EditorPreferences {
   readonly exportFormat: BrowserExportFormat;
   readonly exportScale: BrowserExportScale;
   readonly canvasNavigation: boolean;
+  readonly gridVisible: boolean;
   readonly recentShapes: readonly CatalogShapeRef[];
   readonly favoriteShapes: readonly CatalogShapeRef[];
 }
@@ -553,6 +556,7 @@ const DEFAULT_PREFERENCES: EditorPreferences = {
   exportFormat: 'png',
   exportScale: 2,
   canvasNavigation: false,
+  gridVisible: true,
   recentShapes: [],
   favoriteShapes: [],
 };
@@ -575,6 +579,7 @@ export function parseEditorPreferences(value: string | null): EditorPreferences 
       exportScale:
         stored.exportScale === 1 || stored.exportScale === 4 ? stored.exportScale : 2,
       canvasNavigation: stored.canvasNavigation === true,
+      gridVisible: stored.gridVisible !== false,
       recentShapes: normalizeCatalogShapeRefs(stored.recentShapes, MAX_RECENT_SHAPES),
       favoriteShapes: normalizeCatalogShapeRefs(stored.favoriteShapes, MAX_FAVORITE_SHAPES),
     };
@@ -724,10 +729,11 @@ function isConnectorMarker(
     value === 'crow-foot';
 }
 
-function ColorControl({ label, value, mixed = false, onChange }: {
+function ColorControl({ label, value, mixed = false, showSwatches = true, onChange }: {
   readonly label: string;
   readonly value: string;
   readonly mixed?: boolean;
+  readonly showSwatches?: boolean;
   readonly onChange: (value: string) => void;
 }) {
   const normalized = editorColor(value, '#64748B');
@@ -743,17 +749,18 @@ function ColorControl({ label, value, mixed = false, onChange }: {
           defaultValue={normalized.toUpperCase()}
           onBlur={(event) => {
             const candidate = event.currentTarget.value.trim();
-            if (/^#[0-9a-f]{6}$/i.test(candidate)) onChange(candidate.toUpperCase());
-            else event.currentTarget.value = normalized.toUpperCase();
+            if (/^#[0-9a-f]{6}$/i.test(candidate)) {
+              if (mixed || candidate.toUpperCase() !== normalized.toUpperCase()) onChange(candidate.toUpperCase());
+            } else event.currentTarget.value = normalized.toUpperCase();
           }}
         />
       </div>
-      <div className="oc-style-swatches" aria-label={`${label} swatches`}>
+      {showSwatches ? <div className="oc-style-swatches" aria-label={`${label} swatches`}>
         {STYLE_SWATCHES.map((swatch) => (
           <button type="button" key={swatch} className={normalized.toUpperCase() === swatch ? 'is-active' : undefined}
             style={{ background: swatch }} aria-label={`Set ${label.toLowerCase()} to ${swatch}`} onClick={() => onChange(swatch)} />
         ))}
-      </div>
+      </div> : null}
     </div>
   );
 }
@@ -796,16 +803,16 @@ export function previewDocument(
   const next = { ...document, layout: {
     ...document.layout, overrides: { ...document.layout.overrides },
   } };
-  for (const [id, frame] of Object.entries(preview.updates)) {
-    next.layout.overrides[id] = {
-      ...next.layout.overrides[id],
-      x: frame.x,
-      y: frame.y,
-      width: frame.width,
-      height: frame.height,
-      ...(frame.rotation === undefined ? {} : { rotation: frame.rotation }),
-      pinned: true,
-    };
+  for (const operation of createTransformTransaction(document, preview, { txId: 'preview' }).ops) {
+    if (operation.op === 'set_node_layout' && operation.layout !== null) {
+      next.layout.overrides[operation.id] = operation.layout;
+    } else if (operation.op === 'set_edge_layout' && operation.layout !== null) {
+      if (next.layout.edgeOverrides === document.layout.edgeOverrides) {
+        next.layout.edgeOverrides = { ...next.layout.edgeOverrides };
+      }
+      next.layout.edgeOverrides ??= {};
+      next.layout.edgeOverrides[operation.id] = operation.layout;
+    }
   }
   return next;
 }
@@ -1976,8 +1983,16 @@ function edgeLabelAt(
 ): boolean {
   const edge = document.edges[connector.edgeId];
   if (edge === undefined || edge.label.trim().length === 0) return false;
-  const labelPoint = edgeLabelDisplayPoint(connector.points, document.layout.edgeOverrides?.[edge.id]);
-  return labelPoint !== undefined && Math.hypot(point.x - labelPoint.x, point.y - labelPoint.y) <= tolerance;
+  const label = connectorLabelEditorStyle(document, {
+    edgeId: edge.id, points: connector.points, labelT: document.layout.edgeOverrides?.[edge.id]?.labelT ?? 0.5,
+    value: edge.label, camera: { x: 0, y: 0, zoom: 1 },
+  });
+  const padding = Math.min(tolerance, 4);
+  return label !== undefined
+    && point.x >= Number(label.left) - padding
+    && point.x <= Number(label.left) + Number(label.width) + padding
+    && point.y >= Number(label.top) - padding
+    && point.y <= Number(label.top) + Number(label.height) + padding;
 }
 
 export type ConnectorDoubleClickAction = 'edit-label' | 'add-waypoint';
@@ -2047,9 +2062,14 @@ export function connectorLabelEditorStyle(
     ),
   );
   const labelLineAdvance = fontSize * lineHeight;
-  const labelY = point.y - (visualCaption ? Math.max(16, labelLineAdvance) : fontSize * 0.8);
-  const backgroundY = labelY - 13;
   const backgroundHeight = visualCaption ? 31 : 20;
+  const placement = document.layout.edgeOverrides?.[edge.id]?.labelPlacement;
+  const labelY = placement === 'below'
+    ? point.y + 13
+    : placement === 'on'
+      ? point.y + 13 - backgroundHeight / 2
+      : point.y - (visualCaption ? Math.max(16, labelLineAdvance) : fontSize * 0.8);
+  const backgroundY = labelY - 13;
   const width = Math.max(140, labelWidth * request.camera.zoom);
   const height = Math.max(34, backgroundHeight * request.camera.zoom);
   const centerX = (point.x - request.camera.x) * request.camera.zoom;
@@ -2606,7 +2626,7 @@ function CanvasStage({
       const connectorStartNodeId = connectorStartId?.slice(0, connectorStartId.lastIndexOf(':'));
       const connectorStartSide = connectorStartId?.slice(connectorStartId.lastIndexOf(':') + 1);
       for (const side of ['north', 'east', 'south', 'west'] as const) {
-        const screen = screenPoint(connectorPortPoint(item.bounds, side, connectionHandleOffset), camera);
+        const screen = screenPoint(connectorPortPoint(displayFrames[item.id] ?? item.bounds, side, connectionHandleOffset), camera);
         const active = item.id === connectorStartNodeId && side === connectorStartSide;
         overlay.beginPath();
         overlay.arc(screen.x, screen.y, active ? 5 : tool === 'connector' ? 3.5 : 4.25, 0, Math.PI * 2);
@@ -3048,7 +3068,8 @@ function CanvasStage({
       nextSelection = selectAt(createSelectionState(), items, point, { toggle: event.shiftKey });
     }
     if (nextSelection.selectedIds.length === 0) {
-      const connector = connectorAt(connectors, point, 7 / camera.zoom);
+      const connector = connectors.find((item) => edgeLabelAt(document, item, point, 16 / camera.zoom))
+        ?? connectorAt(connectors, point, 7 / camera.zoom);
       if (connector !== undefined) {
         nextSelection = selectConnector(
           selection,
@@ -3326,7 +3347,8 @@ function CanvasStage({
       onBeginTextEdit(id);
       return;
     }
-    const connector = connectorAt(connectors, point, 7 / camera.zoom);
+    const connector = connectors.find((item) => edgeLabelAt(document, item, point, 18 / camera.zoom))
+      ?? connectorAt(connectors, point, 7 / camera.zoom);
     if (connector !== undefined) {
       const edge = document.edges[connector.edgeId];
       const wasSelected = selection.selectedIds.length === 1 && selection.selectedIds[0] === connector.edgeId;
@@ -3427,6 +3449,7 @@ function CanvasStage({
       }}
     >
       <canvas className="oc-canvas-layer" ref={backgroundRef} aria-hidden="true" />
+      <div className="oc-canvas-grid" aria-hidden="true" />
       <canvas className="oc-canvas-layer" ref={mainRef} aria-hidden="true" />
       <canvas
         className={`oc-canvas-layer oc-canvas-overlay oc-tool-${tool}`}
@@ -3550,12 +3573,12 @@ interface BeautyPreview {
   readonly plan: BeautyPassPlan;
 }
 
-export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
+export function OpenChartEditor({ initialDocument, initialFilename }: OpenChartEditorProps) {
   const [engineRef] = useState(() => ({ current: new OperationEngine(initialDocument) }));
   const [document, setDocument] = useState(engineRef.current.document);
   const [documentPath, setDocumentPath] = useState<string>();
   const [savedDocument, setSavedDocument] = useState(engineRef.current.document);
-  const [browserSaveName, setBrowserSaveName] = useState<string>();
+  const [browserSaveName, setBrowserSaveName] = useState(initialFilename);
   const [activePageId, setActivePageId] = useState(
     () => orderedPages(initialDocument)[0]?.id ?? '',
   );
@@ -3566,6 +3589,7 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
   const [tool, setTool] = useState<EditorTool>('select');
   const [inspectorTab, setInspectorTab] = useState<InspectorTab>('design');
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  const inspectorToggleRef = useRef<HTMLButtonElement>(null);
   const [shortcutOpen, setShortcutOpen] = useState(false);
   const [shortcutQuery, setShortcutQuery] = useState('');
   const [preferences, setPreferences] = useState<EditorPreferences>(loadPreferences);
@@ -3791,6 +3815,7 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
   );
   const pages = useMemo(() => orderedPages(document), [document]);
   const activePage = document.pages[activePageId] ?? pages[0];
+  const defaultPageBackground = editorColor(document.theme?.tokens.canvas, '#F4F7FB');
   const selectedNodeIds = selection.selectedIds.filter((id) => document.nodes[id] !== undefined);
   const selectedEdgeIds = selection.selectedIds.filter((id) => document.edges[id] !== undefined);
   const selectedNodes = selectedNodeIds.map((id) => document.nodes[id]).filter((node): node is Node => node !== undefined);
@@ -3900,7 +3925,31 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
     setDerivationBusy(true);
     setStatus(`Arranging ${layoutMode} layout…`);
     try {
-      const result = await requestLayout(document, {
+      const connectedIds = new Set(Object.values(document.edges).flatMap((edge) => [
+        document.ports[edge.fromPortId]?.nodeId, document.ports[edge.toPortId]?.nodeId,
+      ]));
+      const annotations = new Set(Object.values(document.nodes)
+        .filter((node) => node.pageId === activePageId && node.kind === 'text'
+          && node.parentId === undefined && !connectedIds.has(node.id)).map((node) => node.id));
+      const layoutNodes = Object.values(document.nodes).filter((node) => !annotations.has(node.id));
+      const movableIds = new Set(layoutNodes
+        .filter((node) => node.pageId === activePageId
+          && document.layers[node.layerId]?.visible === true
+          && document.layers[node.layerId]?.locked === false)
+        .map((node) => node.id));
+      if (movableIds.size === 0) return;
+      const layoutInput: OpenChartDocument = {
+        ...document,
+        nodes: Object.fromEntries(layoutNodes.map((node) => [node.id, node])),
+        ports: Object.fromEntries(Object.entries(document.ports).filter(([, port]) => !annotations.has(port.nodeId))),
+        layout: {
+          ...document.layout,
+          overrides: Object.fromEntries(layoutNodes.map((node) => [node.id, {
+            ...frames[node.id], ...document.layout.overrides[node.id], pinned: !movableIds.has(node.id),
+          }])),
+        },
+      };
+      const result = await requestLayout(layoutInput, {
         pageId: activePageId,
         mode: layoutMode,
         direction: 'RIGHT',
@@ -3910,23 +3959,44 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
         setStatus('Layout discarded because the document changed');
         return;
       }
-      const changed =
+      const operations: Operation[] = [];
+      const movedIds = new Set<string>();
+      for (const [id, frame] of Object.entries(result.frames)) {
+        if (!movableIds.has(id)) continue;
+        const layout = { ...document.layout.overrides[id], ...frame, pinned: true };
+        if (JSON.stringify(layout) !== JSON.stringify(document.layout.overrides[id])) {
+          operations.push({ op: 'set_node_layout', id, layout });
+        }
+        if (frame.x !== frames[id]?.x || frame.y !== frames[id]?.y) movedIds.add(id);
+      }
+      for (const edge of Object.values(document.edges)) {
+        const from = document.ports[edge.fromPortId]?.nodeId;
+        const to = document.ports[edge.toPortId]?.nodeId;
+        const layout = document.layout.edgeOverrides?.[edge.id];
+        if (document.layers[edge.layerId]?.locked === false && layout?.waypoints?.length
+          && ((from !== undefined && movedIds.has(from)) || (to !== undefined && movedIds.has(to)))) {
+          operations.push({ op: 'set_edge_layout', id: edge.id, layout: { ...layout, waypoints: [] } });
+        }
+      }
+      const derived = { ...document.layout.derived, ...Object.fromEntries(
+        Object.entries(result.frames).filter(([id]) => movableIds.has(id)),
+      ) };
+      const derivedChanged =
         document.layout.engine !== result.engine ||
         document.layout.derivedVersion !== result.derivedVersion ||
-        JSON.stringify(document.layout.derived) !== JSON.stringify({ ...document.layout.derived, ...result.frames });
-      if (changed) {
+        JSON.stringify(document.layout.derived) !== JSON.stringify(derived);
+      if (derivedChanged) operations.push({
+        op: 'set_derived_layout', engine: result.engine, derivedVersion: result.derivedVersion,
+        frames: derived,
+      });
+      if (operations.length > 0) {
         const applied = commit(
           {
             txId: nextTransactionId('layout'),
             actor: 'user',
             origin: 'layout',
             baseRev: document.rev,
-            ops: [{
-              op: 'set_derived_layout',
-              engine: result.engine,
-              derivedVersion: result.derivedVersion,
-              frames: { ...document.layout.derived, ...result.frames },
-            }],
+            ops: operations,
           },
           `${layoutMode[0]?.toUpperCase() ?? ''}${layoutMode.slice(1)} layout applied`,
         );
@@ -3934,7 +4004,7 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
       } else {
         setStatus('Layout is already current');
       }
-      setCamera(fitCameraBounds(framesBounds(result.frames), viewport));
+      setCamera(fitCamera(buildSceneDescription(liveSession.document, { pageId: activePageId }), viewport));
     } catch (error) {
       if (derivationRef.current === controller) {
         setStatus(error instanceof Error ? error.message : 'Automatic layout failed');
@@ -3945,7 +4015,7 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
         setDerivationBusy(false);
       }
     }
-  }, [activePageId, commit, derivationBusy, document, layoutMode, nextTransactionId, viewport]);
+  }, [activePageId, commit, document, frames, layoutMode, liveSession, nextTransactionId, viewport]);
 
   const closeBeautyPreview = useCallback(() => {
     beautyRequest.current += 1;
@@ -4103,7 +4173,7 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
     setEditing(null);
   }, [commit, document, editing, nextTransactionId]);
 
-  const activeLayerId = activePage?.layerIds.find((id) => document.layers[id]?.visible) ?? activePage?.layerIds[0];
+  const activeLayerId = activePage?.layerIds.find((id) => document.layers[id]?.visible);
 
   const addNode = useCallback(
     (item: ShapePaletteItem, worldPosition?: InteractionPoint): string | undefined => {
@@ -4813,7 +4883,7 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
         <label className="oc-field">
           <span>Size</span>
           <input type="number" min={8} max={96} step={1}
-            value={typeof data.fontSize === 'number' ? data.fontSize : 18}
+            value={typeof data.fontSize === 'number' ? data.fontSize : selectedEdge === undefined ? 18 : 10}
             onChange={(event) => updateTextStyle('fontSize', clamp(Number(event.currentTarget.value), 8, 96))} />
         </label>
         <label className="oc-field">
@@ -4908,7 +4978,7 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
           value={edge.routing?.lineWidth ?? 2.5}
           onChange={(event) => updateConnectorVisualStyle({ lineWidth: clamp(Number(event.currentTarget.value), 0.5, 10) }, 'Connector width updated')} />
           {edgeRoutingMixed('lineWidth') ? <small className="oc-mixed-note">Mixed</small> : null}</label>
-        <label className="oc-field"><span>Dash</span><select value={edge.routing?.lineStyle ?? 'solid'}
+        <label className="oc-field"><span>Dash</span><select value={edge.routing?.lineStyle ?? (edgeStyle(edge, document.styles[edge.styleId]).dash === undefined ? 'solid' : 'dashed')}
           onChange={(event) => updateConnectorVisualStyle({ lineStyle: event.currentTarget.value as 'solid' | 'dashed' | 'dotted' }, 'Connector dash updated')}>
           <option value="solid">Solid</option><option value="dashed">Dashed</option><option value="dotted">Dotted</option></select>
           {edgeRoutingMixed('lineStyle') ? <small className="oc-mixed-note">Mixed</small> : null}</label>
@@ -5194,9 +5264,11 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
   const saveDocument = useCallback(
     async (saveAs: boolean): Promise<void> => {
       if (!desktopRuntime) {
-        const filename = `${safeFilename(document.title)}.openchart.json`;
+        const asCode = browserSaveName?.toLowerCase().endsWith('.openchart') === true;
+        const filename = `${safeFilename(document.title)}.${asCode ? 'openchart' : 'openchart.json'}`;
+        const content = serializeOpenChartDocument(document, asCode ? 'openchart' : 'json');
         downloadBlob(
-          new Blob([serializeOpenChartDocument(document)], { type: 'application/json' }),
+          new Blob([content], { type: asCode ? 'text/plain;charset=utf-8' : 'application/json' }),
           filename,
         );
         setBrowserSaveName(filename);
@@ -5229,7 +5301,7 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
         setFileBusy(false);
       }
     },
-    [desktopRuntime, document, documentPath, fileBusy],
+    [browserSaveName, desktopRuntime, document, documentPath, fileBusy],
   );
 
   const executeCommand = useCallback(
@@ -5828,6 +5900,7 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
         !event.metaKey &&
         !event.shiftKey &&
         event.key.length === 1 &&
+        event.key !== ' ' &&
         selection.selectedIds.length === 1
       ) {
         const selectedId = selection.selectedIds[0];
@@ -6088,6 +6161,14 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
     );
   };
 
+  const updatePageBackground = (color: string | null): void => {
+    if (activePage === undefined || activePage.backgroundColor === color) return;
+    commit({
+      txId: nextTransactionId('page-background'), actor: 'user', origin: 'gui', baseRev: document.rev,
+      ops: [{ op: 'set_page_background', id: activePage.id, color }],
+    }, 'Page color updated');
+  };
+
   const duplicateActivePage = (): void => {
     if (activePage === undefined) {
       return;
@@ -6143,6 +6224,7 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
           layerIds: [baseLayerId],
           order: targetPageIndex,
           ...(activePage.color === undefined ? {} : { color: activePage.color }),
+          ...(activePage.backgroundColor === undefined ? {} : { backgroundColor: activePage.backgroundColor }),
         },
         baseLayer: {
           ...baseSource,
@@ -6410,7 +6492,7 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
         : 'Saved to downloads';
 
   return (
-    <main className={`oc-app${inspectorOpen ? ' oc-inspector-open' : ''}`} aria-label="OpenChart diagram editor"
+    <main className={`oc-app${inspectorOpen ? ' oc-inspector-open' : ''}${preferences.gridVisible ? '' : ' oc-grid-hidden'}`} aria-label="OpenChart diagram editor"
       onCopy={(event) => {
         if (event.target instanceof HTMLElement && event.target.closest('input, textarea, [contenteditable="true"]')) return;
         const ids = selection.selectedIds.filter((id) => document.nodes[id] !== undefined || document.edges[id] !== undefined);
@@ -6484,6 +6566,7 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
           </button>
           <button
             type="button"
+            ref={inspectorToggleRef}
             className={inspectorOpen ? 'is-active' : ''}
             aria-pressed={inspectorOpen}
             onClick={() => setInspectorOpen((open) => !open)}
@@ -6995,6 +7078,10 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
         <div className="oc-inspector-tabs">
           <button type="button" className={inspectorTab === 'design' ? 'is-active' : ''} onClick={() => setInspectorTab('design')}>Design</button>
           <button type="button" className={inspectorTab === 'layers' ? 'is-active' : ''} onClick={() => setInspectorTab('layers')}>Layers</button>
+          <button type="button" className="oc-inspector-collapse" aria-label="Hide contextual panel" title="Hide contextual panel"
+            onClick={() => { setInspectorOpen(false); inspectorToggleRef.current?.focus(); }}>
+            <Icon src={xIcon} size={16} />
+          </button>
         </div>
         {inspectorTab === 'layers' ? (
           <div className="oc-inspector-body">
@@ -7258,7 +7345,7 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
               <span>Line</span>
               <select
                 aria-label="Connector line style"
-                value={selectedEdge.routing?.lineStyle ?? 'solid'}
+                value={selectedEdge.routing?.lineStyle ?? (edgeStyle(selectedEdge, document.styles[selectedEdge.styleId]).dash === undefined ? 'solid' : 'dashed')}
                 onChange={(event) => commit({
                   txId: nextTransactionId('edge-line-style'), actor: 'user', origin: 'gui', baseRev: document.rev,
                   ops: [{
@@ -7439,9 +7526,10 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
             </div>
             <label className="oc-field oc-field-wide">
               <span>Label</span>
-              <input
+              <textarea
                 key={`${selectedNode.id}-label-${document.rev}`}
                 defaultValue={selectedNode.label}
+                rows={2}
                 onBlur={(event) => {
                   const label = event.currentTarget.value.trim();
                   if (label.length > 0 && label !== selectedNode.label) {
@@ -7565,7 +7653,7 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
         ref={openDocumentInputRef}
         className="oc-visually-hidden"
         type="file"
-        accept=".json,application/json"
+        accept=".json,.openchart,application/json"
         aria-label="Open OpenChart document file"
         onChange={(event) => {
           const file = event.currentTarget.files?.[0];
@@ -7857,6 +7945,22 @@ export function OpenChartEditor({ initialDocument }: OpenChartEditorProps) {
                   aria-label={`Set page color ${color}`}
                 />
               ))}
+            </div>
+          </div>
+          <div className="oc-page-background">
+            <ColorControl label="Background" value={activePage.backgroundColor ?? defaultPageBackground}
+              showSwatches={false} onChange={updatePageBackground} />
+            <div className="oc-page-view-options">
+              <label>
+                <input type="checkbox" checked={activePage.backgroundColor === null}
+                  onChange={(event) => updatePageBackground(event.currentTarget.checked ? null : defaultPageBackground)} />
+                Transparent
+              </label>
+              <label>
+                <input type="checkbox" checked={preferences.gridVisible}
+                  onChange={(event) => persistPreferences({ ...preferences, gridVisible: event.currentTarget.checked })} />
+                Grid
+              </label>
             </div>
           </div>
           <div className="oc-page-menu-actions">

@@ -105,6 +105,48 @@ const frames = {
 } as const satisfies Readonly<Record<string, TransformFrame>>;
 
 describe('transform transactions', () => {
+  test.each(['overrides', 'derived'] as const)('moves internal connector bends with grouped shapes from %s', (source) => {
+    const document = documentFixture();
+    document.nodes['grouped.sibling'] = node('grouped.sibling', 15, 'layer.main', 'grouped');
+    const connectedFrames = { ...frames, 'grouped.sibling': { x: 240, y: 144, width: 68, height: 32 } };
+    document.layout[source] = connectedFrames;
+    if (source === 'derived') document.layout.overrides['grouped.child'] = { ...frames['grouped.child'], x: 900, pinned: false };
+    document.ports = {
+      child: { id: 'child', uid: uid(30), nodeId: 'grouped.child', direction: 'out', side: 'south' },
+      sibling: { id: 'sibling', uid: uid(31), nodeId: 'grouped.sibling', direction: 'in', side: 'north' },
+      outside: { id: 'outside', uid: uid(32), nodeId: 'outside', direction: 'in', side: 'west' },
+    };
+    const edge = {
+      id: 'internal', uid: uid(33), fromPortId: 'child', toPortId: 'sibling', label: 'Review', semantic: 'Request',
+      pageId: 'page.main', layerId: 'layer.main', styleId: 'style.node', data: {},
+    };
+    document.edges = { internal: edge, external: { ...edge, id: 'external', uid: uid(34), toPortId: 'outside' } };
+    document.layout.edgeOverrides = {
+      internal: { waypoints: [{ x: 250, y: 136 }, { x: 274, y: 136 }], labelT: 0.6 },
+      external: { waypoints: [{ x: 184, y: 112 }] },
+    };
+    const engine = new OperationEngine(document);
+    const moved = translateSelection(document, connectedFrames, ['grouped'], { x: 8, y: 16 });
+    expect(engine.apply(createTransformTransaction(document, moved, { txId: 'tx.move-group' }))).toMatchObject({ ok: true });
+    expect(engine.document.layout.overrides['grouped.child']).toMatchObject({ x: 224, y: 112 });
+    expect(engine.document.layout.edgeOverrides).toEqual({
+      internal: { waypoints: [{ x: 258, y: 152 }, { x: 282, y: 152 }], labelT: 0.6 },
+      external: { waypoints: [{ x: 184, y: 112 }] },
+    });
+    expect(engine.undo()).toMatchObject({ ok: true });
+    expect(engine.document.layout.edgeOverrides).toEqual(document.layout.edgeOverrides);
+
+    for (const preview of [
+      translateSelection(document, connectedFrames, ['grouped.child'], { x: 8, y: 16 }),
+      resizeSelection(document, connectedFrames, ['grouped'], 'south-east', { x: 20, y: 20 }),
+      rotateSelection(document, connectedFrames, ['grouped.child', 'grouped.sibling'], 90),
+    ]) {
+      const separateEngine = new OperationEngine(document);
+      expect(separateEngine.apply(createTransformTransaction(document, preview, { txId: 'tx.other-transform' }))).toMatchObject({ ok: true });
+      expect(separateEngine.document.layout.edgeOverrides).toEqual(document.layout.edgeOverrides);
+    }
+  });
+
   test('previews and commits proportional container transforms', () => {
     const document = documentFixture();
     const preview = translateSelection(document, frames, ['systems'], {
