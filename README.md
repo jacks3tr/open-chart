@@ -5,6 +5,7 @@
 [![CI](https://github.com/jacks3tr/open-chart/actions/workflows/ci.yml/badge.svg)](https://github.com/jacks3tr/open-chart/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Platform: Windows](https://img.shields.io/badge/platform-Windows-0078D4.svg)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/jacks3tr/open-chart)
 
 OpenChart is an open-source, local diagram editor for architecture, integration,
 and system-connectivity maps. The Windows app, CLI, and MCP interface share one

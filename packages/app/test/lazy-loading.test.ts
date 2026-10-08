@@ -9,7 +9,7 @@ import { listShapeLibraries as listBuiltinShapeLibraries } from '@openchart/shap
 import { createShapeInsertionTransaction, type CatalogShapeRef } from '../src/openchart-editor.js';
 import {
   loadBrowserTextExport,
-  loadFullShapeCatalog,
+  loadShapeCatalog,
   loadStarterTemplates,
 } from '../src/lazy-features.js';
 
@@ -56,12 +56,24 @@ function insertionNode(document: OpenChartDocument, ref: CatalogShapeRef): Node 
 }
 
 describe('lazy feature loading', () => {
+  it('loads a selected icon library independently and resolves both after expanding the catalog', async () => {
+    const simple = await loadShapeCatalog(['simple-icons']);
+    expect(simple.listShapeLibraries().some((library) => library.id === 'phosphor')).toBe(false);
+    expect(simple.resolveLibraryShape('simple-icons', 'simple.postgresql').ok).toBe(true);
+    const phosphor = await loadShapeCatalog(['phosphor']);
+    expect(phosphor.listShapeLibraries().some((library) => library.id === 'simple-icons')).toBe(false);
+    expect(phosphor.resolveLibraryShape('phosphor', 'phosphor.database').ok).toBe(true);
+    const expanded = await loadShapeCatalog(['simple-icons', 'phosphor']);
+    expect(expanded.resolveLibraryShape('simple-icons', 'simple.postgresql').ok).toBe(true);
+    expect(expanded.resolveLibraryShape('phosphor', 'phosphor.database').ok).toBe(true);
+  });
+
   it('keeps the startup catalog built-in-only and resolves/inserts decorative shapes after lazy loading', async () => {
     const builtins = listBuiltinShapeLibraries();
-    expect(builtins.reduce((total, library) => total + library.entries.length, 0)).toBe(397);
+    expect(builtins.reduce((total, library) => total + library.entries.length, 0)).toBe(398);
     expect(builtins.some((library) => library.id === 'simple-icons' || library.id === 'phosphor')).toBe(false);
 
-    const catalog = await loadFullShapeCatalog();
+    const catalog = await loadShapeCatalog();
     const result = catalog.searchShapeLibraries('simple postgres', { limit: 10 })
       .find((candidate) => candidate.libraryId === 'simple-icons' && candidate.entry.id === 'simple.postgresql');
     expect(result).toBeDefined();
@@ -90,7 +102,7 @@ describe('lazy feature loading', () => {
     });
     expect(engine.undo()).toMatchObject({ ok: true });
     expect(engine.document.nodes[node.id]).toBeUndefined();
-  }, 15_000); // Includes on-demand transformation of the pinned 11 MB catalog in Vitest.
+  });
 
 
   it('applies a lazily loaded starter through one canonical OperationEngine transaction and undo', async () => {

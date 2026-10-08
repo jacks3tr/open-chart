@@ -6,7 +6,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./libraries": "./src/libraries-index.ts",
-    "./libraries-core": "./src/libraries-core.ts"
+    "./libraries-core": "./src/libraries-core.ts",
+    "./libraries-lazy": "./src/libraries-lazy.ts"
   },
   "dependencies": {
     "@openchart/ir": "0.0.0",

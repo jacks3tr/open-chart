@@ -1,0 +1,1394 @@
+{
+  "schemaVersion": 1,
+  "documentId": "document.northstar-swimlanes",
+  "uid": "00000000000000000000000001",
+  "title": "Northstar order-to-production architecture",
+  "rev": 0,
+  "pages": {
+    "page.architecture": {
+      "id": "page.architecture",
+      "uid": "00000000000000000000000002",
+      "name": "Integration architecture",
+      "backgroundColor": "#FFFFFF",
+      "layerIds": [
+        "layer.systems"
+      ]
+    }
+  },
+  "layers": {
+    "layer.systems": {
+      "id": "layer.systems",
+      "uid": "00000000000000000000000003",
+      "name": "Systems and flows",
+      "pageId": "page.architecture",
+      "visible": true,
+      "locked": false
+    }
+  },
+  "nodes": {
+    "system.northstar": {
+      "id": "system.northstar",
+      "uid": "00000000000000000000000105",
+      "kind": "group",
+      "label": "Northstar ERP",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.source",
+      "parentId": "lane.source",
+      "group": {},
+      "data": {
+        "eyebrow": "ERP CORE",
+        "subtitle": "Commercial operations",
+        "capabilities": [
+          "Orders and suppliers",
+          "Items, routings and BOM",
+          "Finance and journals"
+        ],
+        "status": "AUTHORITATIVE"
+      }
+    },
+    "service.ingress": {
+      "id": "service.ingress",
+      "uid": "00000000000000000000000110",
+      "kind": "group",
+      "label": "Ingress gateway",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.source",
+      "parentId": "lane.fabric",
+      "group": {},
+      "data": {
+        "eyebrow": "EDGE",
+        "subtitle": "REST contracts and routing",
+        "capabilities": [
+          "Schema gate",
+          "Rate policy"
+        ],
+        "status": "HEALTHY"
+      }
+    },
+    "service.transform": {
+      "id": "service.transform",
+      "uid": "00000000000000000000000115",
+      "kind": "group",
+      "label": "Mapping engine",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.source",
+      "parentId": "lane.fabric",
+      "group": {},
+      "data": {
+        "eyebrow": "PROCESS",
+        "subtitle": "Validation and enrichment",
+        "capabilities": [
+          "Field mapping",
+          "Duplicate control"
+        ],
+        "status": "HEALTHY"
+      }
+    },
+    "service.audit": {
+      "id": "service.audit",
+      "uid": "00000000000000000000000120",
+      "kind": "group",
+      "label": "Replay ledger",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.source",
+      "parentId": "lane.fabric",
+      "group": {},
+      "data": {
+        "eyebrow": "CONTROL",
+        "subtitle": "Correlation and audit trail",
+        "capabilities": [
+          "Checkpoint state",
+          "Safe replay"
+        ],
+        "status": "DURABLE"
+      }
+    },
+    "system.forge": {
+      "id": "system.forge",
+      "uid": "00000000000000000000000125",
+      "kind": "group",
+      "label": "Forge MES",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.source",
+      "parentId": "lane.target",
+      "group": {},
+      "data": {
+        "eyebrow": "MES CORE",
+        "subtitle": "Manufacturing execution",
+        "capabilities": [
+          "Production orders",
+          "Inventory receipts",
+          "Shipment history"
+        ],
+        "status": "CONNECTED"
+      }
+    },
+    "service.sentinel": {
+      "id": "service.sentinel",
+      "uid": "00000000000000000000000130",
+      "kind": "group",
+      "label": "Sentinel control plane",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.source",
+      "parentId": "lane.target",
+      "group": {},
+      "data": {
+        "eyebrow": "OPERATIONS",
+        "subtitle": "Health and reconciliation",
+        "capabilities": [
+          "Exception queues",
+          "Run-level evidence"
+        ],
+        "status": "MONITORED"
+      }
+    },
+    "text.title": {
+      "id": "text.title",
+      "uid": "00000000000000000000000100",
+      "kind": "text",
+      "label": "Northstar order-to-production architecture",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.source",
+      "data": {
+        "shape": {
+          "libraryId": "basic",
+          "entryId": "basic.text"
+        },
+        "fontFamily": "IBM Plex Sans, sans-serif",
+        "fontSize": 34,
+        "fontWeight": 600,
+        "textAlign": "left",
+        "textColor": "#172433"
+      }
+    },
+    "text.subtitle": {
+      "id": "text.subtitle",
+      "uid": "00000000000000000000000101",
+      "kind": "text",
+      "label": "Order-to-production integration with traceable control-plane evidence",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.source",
+      "data": {
+        "shape": {
+          "libraryId": "basic",
+          "entryId": "basic.text"
+        },
+        "fontFamily": "IBM Plex Sans, sans-serif",
+        "fontSize": 17,
+        "fontWeight": 400,
+        "textAlign": "left",
+        "textColor": "#607185"
+      }
+    },
+    "lane.source": {
+      "id": "lane.source",
+      "uid": "00000000000000000000000102",
+      "kind": "container",
+      "label": "SYSTEM OF RECORD",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.source",
+      "container": {
+        "magnetize": true,
+        "clip": false,
+        "autoGrow": false,
+        "padding": 0
+      },
+      "data": {
+        "shape": {
+          "libraryId": "architecture",
+          "entryId": "architecture.swimlane"
+        },
+        "fillColor": "none",
+        "borderColor": "#CBD5E1",
+        "borderWidth": 1,
+        "textColor": "#53657A",
+        "fontSize": 13,
+        "fontWeight": 600
+      }
+    },
+    "lane.fabric": {
+      "id": "lane.fabric",
+      "uid": "00000000000000000000000103",
+      "kind": "container",
+      "label": "INTEGRATION FABRIC",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.source",
+      "container": {
+        "magnetize": true,
+        "clip": false,
+        "autoGrow": false,
+        "padding": 0
+      },
+      "data": {
+        "shape": {
+          "libraryId": "architecture",
+          "entryId": "architecture.swimlane"
+        },
+        "fillColor": "none",
+        "borderColor": "#CBD5E1",
+        "borderWidth": 1,
+        "textColor": "#53657A",
+        "fontSize": 13,
+        "fontWeight": 600
+      }
+    },
+    "lane.target": {
+      "id": "lane.target",
+      "uid": "00000000000000000000000104",
+      "kind": "container",
+      "label": "EXECUTION AND CONTROL",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.source",
+      "container": {
+        "magnetize": true,
+        "clip": false,
+        "autoGrow": false,
+        "padding": 0
+      },
+      "data": {
+        "shape": {
+          "libraryId": "architecture",
+          "entryId": "architecture.swimlane"
+        },
+        "fillColor": "none",
+        "borderColor": "#CBD5E1",
+        "borderWidth": 1,
+        "textColor": "#53657A",
+        "fontSize": 13,
+        "fontWeight": 600
+      }
+    },
+    "system.northstar.body": {
+      "id": "system.northstar.body",
+      "uid": "00000000000000000000000106",
+      "kind": "service",
+      "label": "",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.source",
+      "parentId": "system.northstar",
+      "data": {
+        "shape": {
+          "libraryId": "flowchart",
+          "entryId": "flowchart.process"
+        },
+        "fillColor": "#FFFFFF",
+        "borderColor": "#53657A",
+        "borderWidth": 1.5,
+        "cornerRadius": 6
+      }
+    },
+    "system.northstar.icon": {
+      "id": "system.northstar.icon",
+      "uid": "00000000000000000000000107",
+      "kind": "service",
+      "label": "",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.source",
+      "parentId": "system.northstar",
+      "data": {
+        "shape": {
+          "libraryId": "phosphor",
+          "entryId": "phosphor.hard-drives",
+          "variant": "regular"
+        },
+        "borderColor": "#53657A"
+      }
+    },
+    "system.northstar.title": {
+      "id": "system.northstar.title",
+      "uid": "00000000000000000000000108",
+      "kind": "text",
+      "label": "Northstar ERP",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.source",
+      "parentId": "system.northstar",
+      "data": {
+        "shape": {
+          "libraryId": "basic",
+          "entryId": "basic.text"
+        },
+        "fontFamily": "IBM Plex Sans, sans-serif",
+        "fontSize": 20,
+        "fontWeight": 600,
+        "textAlign": "left",
+        "textColor": "#172433"
+      }
+    },
+    "system.northstar.subtitle": {
+      "id": "system.northstar.subtitle",
+      "uid": "00000000000000000000000109",
+      "kind": "text",
+      "label": "Commercial operations",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.source",
+      "parentId": "system.northstar",
+      "data": {
+        "shape": {
+          "libraryId": "basic",
+          "entryId": "basic.text"
+        },
+        "fontFamily": "IBM Plex Sans, sans-serif",
+        "fontSize": 16,
+        "fontWeight": 400,
+        "textAlign": "left",
+        "textColor": "#607185"
+      }
+    },
+    "service.ingress.body": {
+      "id": "service.ingress.body",
+      "uid": "00000000000000000000000111",
+      "kind": "service",
+      "label": "",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.source",
+      "parentId": "service.ingress",
+      "data": {
+        "shape": {
+          "libraryId": "flowchart",
+          "entryId": "flowchart.process"
+        },
+        "fillColor": "#F2FAF9",
+        "borderColor": "#007E82",
+        "borderWidth": 1.5,
+        "cornerRadius": 6
+      }
+    },
+    "service.ingress.icon": {
+      "id": "service.ingress.icon",
+      "uid": "00000000000000000000000112",
+      "kind": "service",
+      "label": "",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.source",
+      "parentId": "service.ingress",
+      "data": {
+        "shape": {
+          "libraryId": "phosphor",
+          "entryId": "phosphor.tree-structure",
+          "variant": "regular"
+        },
+        "borderColor": "#007E82"
+      }
+    },
+    "service.ingress.title": {
+      "id": "service.ingress.title",
+      "uid": "00000000000000000000000113",
+      "kind": "text",
+      "label": "Ingress gateway",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.source",
+      "parentId": "service.ingress",
+      "data": {
+        "shape": {
+          "libraryId": "basic",
+          "entryId": "basic.text"
+        },
+        "fontFamily": "IBM Plex Sans, sans-serif",
+        "fontSize": 20,
+        "fontWeight": 600,
+        "textAlign": "left",
+        "textColor": "#172433"
+      }
+    },
+    "service.ingress.subtitle": {
+      "id": "service.ingress.subtitle",
+      "uid": "00000000000000000000000114",
+      "kind": "text",
+      "label": "REST contracts and routing",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.source",
+      "parentId": "service.ingress",
+      "data": {
+        "shape": {
+          "libraryId": "basic",
+          "entryId": "basic.text"
+        },
+        "fontFamily": "IBM Plex Sans, sans-serif",
+        "fontSize": 16,
+        "fontWeight": 400,
+        "textAlign": "left",
+        "textColor": "#607185"
+      }
+    },
+    "service.transform.body": {
+      "id": "service.transform.body",
+      "uid": "00000000000000000000000116",
+      "kind": "service",
+      "label": "",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.source",
+      "parentId": "service.transform",
+      "data": {
+        "shape": {
+          "libraryId": "flowchart",
+          "entryId": "flowchart.process"
+        },
+        "fillColor": "#F2FAF9",
+        "borderColor": "#007E82",
+        "borderWidth": 1.5,
+        "cornerRadius": 6
+      }
+    },
+    "service.transform.icon": {
+      "id": "service.transform.icon",
+      "uid": "00000000000000000000000117",
+      "kind": "service",
+      "label": "",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.source",
+      "parentId": "service.transform",
+      "data": {
+        "shape": {
+          "libraryId": "phosphor",
+          "entryId": "phosphor.gear",
+          "variant": "regular"
+        },
+        "borderColor": "#007E82"
+      }
+    },
+    "service.transform.title": {
+      "id": "service.transform.title",
+      "uid": "00000000000000000000000118",
+      "kind": "text",
+      "label": "Mapping engine",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.source",
+      "parentId": "service.transform",
+      "data": {
+        "shape": {
+          "libraryId": "basic",
+          "entryId": "basic.text"
+        },
+        "fontFamily": "IBM Plex Sans, sans-serif",
+        "fontSize": 20,
+        "fontWeight": 600,
+        "textAlign": "left",
+        "textColor": "#172433"
+      }
+    },
+    "service.transform.subtitle": {
+      "id": "service.transform.subtitle",
+      "uid": "00000000000000000000000119",
+      "kind": "text",
+      "label": "Validation and enrichment",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.source",
+      "parentId": "service.transform",
+      "data": {
+        "shape": {
+          "libraryId": "basic",
+          "entryId": "basic.text"
+        },
+        "fontFamily": "IBM Plex Sans, sans-serif",
+        "fontSize": 16,
+        "fontWeight": 400,
+        "textAlign": "left",
+        "textColor": "#607185"
+      }
+    },
+    "service.audit.body": {
+      "id": "service.audit.body",
+      "uid": "00000000000000000000000121",
+      "kind": "service",
+      "label": "",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.source",
+      "parentId": "service.audit",
+      "data": {
+        "shape": {
+          "libraryId": "flowchart",
+          "entryId": "flowchart.process"
+        },
+        "fillColor": "#FFFFFF",
+        "borderColor": "#53657A",
+        "borderWidth": 1.5,
+        "cornerRadius": 6
+      }
+    },
+    "service.audit.icon": {
+      "id": "service.audit.icon",
+      "uid": "00000000000000000000000122",
+      "kind": "service",
+      "label": "",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.source",
+      "parentId": "service.audit",
+      "data": {
+        "shape": {
+          "libraryId": "phosphor",
+          "entryId": "phosphor.database",
+          "variant": "regular"
+        },
+        "borderColor": "#53657A"
+      }
+    },
+    "service.audit.title": {
+      "id": "service.audit.title",
+      "uid": "00000000000000000000000123",
+      "kind": "text",
+      "label": "Replay ledger",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.source",
+      "parentId": "service.audit",
+      "data": {
+        "shape": {
+          "libraryId": "basic",
+          "entryId": "basic.text"
+        },
+        "fontFamily": "IBM Plex Sans, sans-serif",
+        "fontSize": 20,
+        "fontWeight": 600,
+        "textAlign": "left",
+        "textColor": "#172433"
+      }
+    },
+    "service.audit.subtitle": {
+      "id": "service.audit.subtitle",
+      "uid": "00000000000000000000000124",
+      "kind": "text",
+      "label": "Correlation and audit trail",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.source",
+      "parentId": "service.audit",
+      "data": {
+        "shape": {
+          "libraryId": "basic",
+          "entryId": "basic.text"
+        },
+        "fontFamily": "IBM Plex Sans, sans-serif",
+        "fontSize": 16,
+        "fontWeight": 400,
+        "textAlign": "left",
+        "textColor": "#607185"
+      }
+    },
+    "system.forge.body": {
+      "id": "system.forge.body",
+      "uid": "00000000000000000000000126",
+      "kind": "service",
+      "label": "",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.source",
+      "parentId": "system.forge",
+      "data": {
+        "shape": {
+          "libraryId": "flowchart",
+          "entryId": "flowchart.process"
+        },
+        "fillColor": "#FFFFFF",
+        "borderColor": "#53657A",
+        "borderWidth": 1.5,
+        "cornerRadius": 6
+      }
+    },
+    "system.forge.icon": {
+      "id": "system.forge.icon",
+      "uid": "00000000000000000000000127",
+      "kind": "service",
+      "label": "",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.source",
+      "parentId": "system.forge",
+      "data": {
+        "shape": {
+          "libraryId": "phosphor",
+          "entryId": "phosphor.factory",
+          "variant": "regular"
+        },
+        "borderColor": "#53657A"
+      }
+    },
+    "system.forge.title": {
+      "id": "system.forge.title",
+      "uid": "00000000000000000000000128",
+      "kind": "text",
+      "label": "Forge MES",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.source",
+      "parentId": "system.forge",
+      "data": {
+        "shape": {
+          "libraryId": "basic",
+          "entryId": "basic.text"
+        },
+        "fontFamily": "IBM Plex Sans, sans-serif",
+        "fontSize": 20,
+        "fontWeight": 600,
+        "textAlign": "left",
+        "textColor": "#172433"
+      }
+    },
+    "system.forge.subtitle": {
+      "id": "system.forge.subtitle",
+      "uid": "00000000000000000000000129",
+      "kind": "text",
+      "label": "Manufacturing execution",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.source",
+      "parentId": "system.forge",
+      "data": {
+        "shape": {
+          "libraryId": "basic",
+          "entryId": "basic.text"
+        },
+        "fontFamily": "IBM Plex Sans, sans-serif",
+        "fontSize": 16,
+        "fontWeight": 400,
+        "textAlign": "left",
+        "textColor": "#607185"
+      }
+    },
+    "service.sentinel.body": {
+      "id": "service.sentinel.body",
+      "uid": "00000000000000000000000131",
+      "kind": "service",
+      "label": "",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.source",
+      "parentId": "service.sentinel",
+      "data": {
+        "shape": {
+          "libraryId": "flowchart",
+          "entryId": "flowchart.process"
+        },
+        "fillColor": "#FFFFFF",
+        "borderColor": "#53657A",
+        "borderWidth": 1.5,
+        "cornerRadius": 6
+      }
+    },
+    "service.sentinel.icon": {
+      "id": "service.sentinel.icon",
+      "uid": "00000000000000000000000132",
+      "kind": "service",
+      "label": "",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.source",
+      "parentId": "service.sentinel",
+      "data": {
+        "shape": {
+          "libraryId": "phosphor",
+          "entryId": "phosphor.shield-check",
+          "variant": "regular"
+        },
+        "borderColor": "#53657A"
+      }
+    },
+    "service.sentinel.title": {
+      "id": "service.sentinel.title",
+      "uid": "00000000000000000000000133",
+      "kind": "text",
+      "label": "Sentinel control plane",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.source",
+      "parentId": "service.sentinel",
+      "data": {
+        "shape": {
+          "libraryId": "basic",
+          "entryId": "basic.text"
+        },
+        "fontFamily": "IBM Plex Sans, sans-serif",
+        "fontSize": 20,
+        "fontWeight": 600,
+        "textAlign": "left",
+        "textColor": "#172433"
+      }
+    },
+    "service.sentinel.subtitle": {
+      "id": "service.sentinel.subtitle",
+      "uid": "00000000000000000000000134",
+      "kind": "text",
+      "label": "Health and reconciliation",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.source",
+      "parentId": "service.sentinel",
+      "data": {
+        "shape": {
+          "libraryId": "basic",
+          "entryId": "basic.text"
+        },
+        "fontFamily": "IBM Plex Sans, sans-serif",
+        "fontSize": 16,
+        "fontWeight": 400,
+        "textAlign": "left",
+        "textColor": "#607185"
+      }
+    }
+  },
+  "ports": {
+    "system.northstar.master-out": {
+      "id": "system.northstar.master-out",
+      "uid": "00000000000000000000000030",
+      "nodeId": "system.northstar",
+      "direction": "out",
+      "side": "east"
+    },
+    "system.northstar.transactions-in": {
+      "id": "system.northstar.transactions-in",
+      "uid": "00000000000000000000000031",
+      "nodeId": "system.northstar",
+      "direction": "in",
+      "side": "south"
+    },
+    "service.ingress.source-in": {
+      "id": "service.ingress.source-in",
+      "uid": "00000000000000000000000032",
+      "nodeId": "service.ingress",
+      "direction": "in",
+      "side": "west",
+      "order": 0
+    },
+    "service.ingress.target-out": {
+      "id": "service.ingress.target-out",
+      "uid": "00000000000000000000000033",
+      "nodeId": "service.ingress",
+      "direction": "out",
+      "side": "east"
+    },
+    "service.ingress.trace-out": {
+      "id": "service.ingress.trace-out",
+      "uid": "00000000000000000000000034",
+      "nodeId": "service.ingress",
+      "direction": "out",
+      "side": "south",
+      "order": 1
+    },
+    "system.forge.master-in": {
+      "id": "system.forge.master-in",
+      "uid": "00000000000000000000000035",
+      "nodeId": "system.forge",
+      "direction": "in",
+      "side": "west"
+    },
+    "system.forge.events-out": {
+      "id": "system.forge.events-out",
+      "uid": "00000000000000000000000036",
+      "nodeId": "system.forge",
+      "direction": "out",
+      "side": "south"
+    },
+    "service.transform.target-in": {
+      "id": "service.transform.target-in",
+      "uid": "00000000000000000000000037",
+      "nodeId": "service.transform",
+      "direction": "in",
+      "side": "east"
+    },
+    "service.transform.source-out": {
+      "id": "service.transform.source-out",
+      "uid": "00000000000000000000000038",
+      "nodeId": "service.transform",
+      "direction": "out",
+      "side": "west"
+    },
+    "service.transform.trace-out": {
+      "id": "service.transform.trace-out",
+      "uid": "00000000000000000000000039",
+      "nodeId": "service.transform",
+      "direction": "out",
+      "side": "south"
+    },
+    "service.audit.ingress-in": {
+      "id": "service.audit.ingress-in",
+      "uid": "00000000000000000000000040",
+      "nodeId": "service.audit",
+      "direction": "in",
+      "side": "west"
+    },
+    "service.audit.transform-in": {
+      "id": "service.audit.transform-in",
+      "uid": "00000000000000000000000041",
+      "nodeId": "service.audit",
+      "direction": "in",
+      "side": "north"
+    },
+    "service.audit.sentinel-out": {
+      "id": "service.audit.sentinel-out",
+      "uid": "00000000000000000000000042",
+      "nodeId": "service.audit",
+      "direction": "out",
+      "side": "east"
+    },
+    "service.sentinel.audit-in": {
+      "id": "service.sentinel.audit-in",
+      "uid": "00000000000000000000000043",
+      "nodeId": "service.sentinel",
+      "direction": "in",
+      "side": "west"
+    }
+  },
+  "edges": {
+    "edge.master-ingress": {
+      "id": "edge.master-ingress",
+      "uid": "00000000000000000000000050",
+      "fromPortId": "system.northstar.master-out",
+      "toPortId": "service.ingress.source-in",
+      "label": "Master data",
+      "semantic": "REST · create/update",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.flow-outbound",
+      "routing": {
+        "mode": "orthogonal",
+        "avoidObstacles": false,
+        "cornerRadius": 6,
+        "jumpStyle": "gap",
+        "lineWidth": 1.6,
+        "lineStyle": "solid"
+      },
+      "data": {
+        "showSemanticLabel": false,
+        "fontFamily": "IBM Plex Mono, monospace",
+        "fontSize": 13,
+        "fontWeight": 500,
+        "textColor": "#53657A"
+      }
+    },
+    "edge.master-target": {
+      "id": "edge.master-target",
+      "uid": "00000000000000000000000051",
+      "fromPortId": "service.ingress.target-out",
+      "toPortId": "system.forge.master-in",
+      "label": "Validated master",
+      "semantic": "REST · idempotent",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.flow-outbound",
+      "routing": {
+        "mode": "orthogonal",
+        "avoidObstacles": false,
+        "cornerRadius": 6,
+        "jumpStyle": "gap",
+        "lineWidth": 1.6,
+        "lineStyle": "solid"
+      },
+      "data": {
+        "showSemanticLabel": false,
+        "fontFamily": "IBM Plex Mono, monospace",
+        "fontSize": 13,
+        "fontWeight": 500,
+        "textColor": "#53657A"
+      }
+    },
+    "edge.events-transform": {
+      "id": "edge.events-transform",
+      "uid": "00000000000000000000000052",
+      "fromPortId": "system.forge.events-out",
+      "toPortId": "service.transform.target-in",
+      "label": "Production events",
+      "semantic": "Webhook · ordered",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.flow-inbound",
+      "routing": {
+        "mode": "orthogonal",
+        "avoidObstacles": false,
+        "cornerRadius": 6,
+        "jumpStyle": "gap",
+        "lineWidth": 1.6,
+        "lineStyle": "solid"
+      },
+      "data": {
+        "showSemanticLabel": false,
+        "fontFamily": "IBM Plex Mono, monospace",
+        "fontSize": 13,
+        "fontWeight": 500,
+        "textColor": "#53657A"
+      }
+    },
+    "edge.transactions-source": {
+      "id": "edge.transactions-source",
+      "uid": "00000000000000000000000053",
+      "fromPortId": "service.transform.source-out",
+      "toPortId": "system.northstar.transactions-in",
+      "label": "Transactions",
+      "semantic": "REST · replay-safe",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.flow-inbound",
+      "routing": {
+        "mode": "orthogonal",
+        "avoidObstacles": false,
+        "cornerRadius": 6,
+        "jumpStyle": "gap",
+        "lineWidth": 1.6,
+        "lineStyle": "solid"
+      },
+      "data": {
+        "showSemanticLabel": false,
+        "fontFamily": "IBM Plex Mono, monospace",
+        "fontSize": 13,
+        "fontWeight": 500,
+        "textColor": "#53657A"
+      }
+    },
+    "edge.ingress-audit": {
+      "id": "edge.ingress-audit",
+      "uid": "00000000000000000000000054",
+      "fromPortId": "service.ingress.trace-out",
+      "toPortId": "service.audit.ingress-in",
+      "label": "Ingress trace",
+      "semantic": "Correlation envelope",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.flow-control",
+      "routing": {
+        "mode": "orthogonal",
+        "avoidObstacles": false,
+        "cornerRadius": 6,
+        "jumpStyle": "gap",
+        "lineWidth": 1.6,
+        "lineStyle": "dashed"
+      },
+      "data": {
+        "showSemanticLabel": false,
+        "fontFamily": "IBM Plex Mono, monospace",
+        "fontSize": 13,
+        "fontWeight": 500,
+        "textColor": "#53657A"
+      }
+    },
+    "edge.transform-audit": {
+      "id": "edge.transform-audit",
+      "uid": "00000000000000000000000055",
+      "fromPortId": "service.transform.trace-out",
+      "toPortId": "service.audit.transform-in",
+      "label": "Process trace",
+      "semantic": "Checkpoint evidence",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.flow-control",
+      "routing": {
+        "mode": "orthogonal",
+        "avoidObstacles": false,
+        "cornerRadius": 6,
+        "jumpStyle": "gap",
+        "lineWidth": 1.6,
+        "lineStyle": "dashed"
+      },
+      "data": {
+        "showSemanticLabel": false,
+        "fontFamily": "IBM Plex Mono, monospace",
+        "fontSize": 13,
+        "fontWeight": 500,
+        "textColor": "#53657A"
+      }
+    },
+    "edge.audit-sentinel": {
+      "id": "edge.audit-sentinel",
+      "uid": "00000000000000000000000056",
+      "fromPortId": "service.audit.sentinel-out",
+      "toPortId": "service.sentinel.audit-in",
+      "label": "Run evidence",
+      "semantic": "Metrics + exceptions",
+      "pageId": "page.architecture",
+      "layerId": "layer.systems",
+      "styleId": "style.flow-control",
+      "routing": {
+        "mode": "orthogonal",
+        "avoidObstacles": false,
+        "cornerRadius": 6,
+        "jumpStyle": "gap",
+        "lineWidth": 1.6,
+        "lineStyle": "dashed"
+      },
+      "data": {
+        "showSemanticLabel": false,
+        "fontFamily": "IBM Plex Mono, monospace",
+        "fontSize": 13,
+        "fontWeight": 500,
+        "textColor": "#53657A"
+      }
+    }
+  },
+  "styles": {
+    "style.source": {
+      "id": "style.source",
+      "uid": "00000000000000000000000004",
+      "role": "system/source",
+      "tokens": {
+        "accent": "#FF6A3D",
+        "surface": "#FFF8F5"
+      }
+    },
+    "style.fabric": {
+      "id": "style.fabric",
+      "uid": "00000000000000000000000005",
+      "role": "service/integration",
+      "tokens": {
+        "accent": "#00A7A5",
+        "surface": "#F0FBFA"
+      }
+    },
+    "style.target": {
+      "id": "style.target",
+      "uid": "00000000000000000000000006",
+      "role": "system/target",
+      "tokens": {
+        "accent": "#2D62E8",
+        "surface": "#F4F7FF"
+      }
+    },
+    "style.operations": {
+      "id": "style.operations",
+      "uid": "00000000000000000000000007",
+      "role": "service/operations",
+      "tokens": {
+        "accent": "#64748B",
+        "surface": "#F7F9FC"
+      }
+    },
+    "style.flow-outbound": {
+      "id": "style.flow-outbound",
+      "uid": "00000000000000000000000008",
+      "role": "flow/master-data",
+      "tokens": {
+        "stroke": "#007E82",
+        "label": "ERP to MES"
+      }
+    },
+    "style.flow-inbound": {
+      "id": "style.flow-inbound",
+      "uid": "00000000000000000000000009",
+      "role": "flow/transaction",
+      "tokens": {
+        "stroke": "#007E82",
+        "label": "MES to ERP"
+      }
+    },
+    "style.flow-control": {
+      "id": "style.flow-control",
+      "uid": "00000000000000000000000010",
+      "role": "flow/control",
+      "tokens": {
+        "stroke": "#54888D",
+        "label": "Control evidence",
+        "dash": "4 5"
+      }
+    }
+  },
+  "theme": {
+    "presetId": "openchart-light",
+    "tokens": {
+      "canvas": "#FFFFFF",
+      "textHi": "#172433",
+      "textMid": "#607185"
+    }
+  },
+  "layout": {
+    "engine": "manual-reference",
+    "options": {
+      "canvasWidth": 1440,
+      "canvasHeight": 940,
+      "showDocumentChrome": false
+    },
+    "overrides": {
+      "text.title": {
+        "x": 62,
+        "y": 56,
+        "width": 1268,
+        "height": 36
+      },
+      "text.subtitle": {
+        "x": 62,
+        "y": 99,
+        "width": 1268,
+        "height": 36
+      },
+      "lane.source": {
+        "x": 70,
+        "y": 185,
+        "width": 350,
+        "height": 665
+      },
+      "lane.fabric": {
+        "x": 510,
+        "y": 185,
+        "width": 380,
+        "height": 665
+      },
+      "lane.target": {
+        "x": 985,
+        "y": 185,
+        "width": 385,
+        "height": 665
+      },
+      "system.northstar": {
+        "x": 70,
+        "y": 265,
+        "width": 300,
+        "height": 145
+      },
+      "system.northstar.body": {
+        "x": 70,
+        "y": 265,
+        "width": 300,
+        "height": 145
+      },
+      "system.northstar.icon": {
+        "x": 92,
+        "y": 283,
+        "width": 34,
+        "height": 34
+      },
+      "system.northstar.title": {
+        "x": 84,
+        "y": 325,
+        "width": 273,
+        "height": 36
+      },
+      "system.northstar.subtitle": {
+        "x": 84,
+        "y": 362,
+        "width": 273,
+        "height": 36
+      },
+      "service.ingress": {
+        "x": 560,
+        "y": 265,
+        "width": 300,
+        "height": 145
+      },
+      "service.ingress.body": {
+        "x": 560,
+        "y": 265,
+        "width": 300,
+        "height": 145
+      },
+      "service.ingress.icon": {
+        "x": 582,
+        "y": 283,
+        "width": 34,
+        "height": 34
+      },
+      "service.ingress.title": {
+        "x": 574,
+        "y": 325,
+        "width": 273,
+        "height": 36
+      },
+      "service.ingress.subtitle": {
+        "x": 574,
+        "y": 362,
+        "width": 273,
+        "height": 36
+      },
+      "service.transform": {
+        "x": 560,
+        "y": 465,
+        "width": 300,
+        "height": 145
+      },
+      "service.transform.body": {
+        "x": 560,
+        "y": 465,
+        "width": 300,
+        "height": 145
+      },
+      "service.transform.icon": {
+        "x": 582,
+        "y": 483,
+        "width": 34,
+        "height": 34
+      },
+      "service.transform.title": {
+        "x": 574,
+        "y": 525,
+        "width": 273,
+        "height": 36
+      },
+      "service.transform.subtitle": {
+        "x": 574,
+        "y": 562,
+        "width": 273,
+        "height": 36
+      },
+      "service.audit": {
+        "x": 560,
+        "y": 705,
+        "width": 300,
+        "height": 145
+      },
+      "service.audit.body": {
+        "x": 560,
+        "y": 705,
+        "width": 300,
+        "height": 145
+      },
+      "service.audit.icon": {
+        "x": 582,
+        "y": 723,
+        "width": 34,
+        "height": 34
+      },
+      "service.audit.title": {
+        "x": 574,
+        "y": 765,
+        "width": 273,
+        "height": 36
+      },
+      "service.audit.subtitle": {
+        "x": 574,
+        "y": 802,
+        "width": 273,
+        "height": 36
+      },
+      "system.forge": {
+        "x": 1060,
+        "y": 265,
+        "width": 300,
+        "height": 145
+      },
+      "system.forge.body": {
+        "x": 1060,
+        "y": 265,
+        "width": 300,
+        "height": 145
+      },
+      "system.forge.icon": {
+        "x": 1082,
+        "y": 283,
+        "width": 34,
+        "height": 34
+      },
+      "system.forge.title": {
+        "x": 1074,
+        "y": 325,
+        "width": 273,
+        "height": 36
+      },
+      "system.forge.subtitle": {
+        "x": 1074,
+        "y": 362,
+        "width": 273,
+        "height": 36
+      },
+      "service.sentinel": {
+        "x": 1060,
+        "y": 705,
+        "width": 300,
+        "height": 145
+      },
+      "service.sentinel.body": {
+        "x": 1060,
+        "y": 705,
+        "width": 300,
+        "height": 145
+      },
+      "service.sentinel.icon": {
+        "x": 1082,
+        "y": 723,
+        "width": 34,
+        "height": 34
+      },
+      "service.sentinel.title": {
+        "x": 1074,
+        "y": 765,
+        "width": 273,
+        "height": 36
+      },
+      "service.sentinel.subtitle": {
+        "x": 1074,
+        "y": 802,
+        "width": 273,
+        "height": 36
+      }
+    },
+    "edgeOverrides": {
+      "edge.master-ingress": {
+        "labelT": 0.5,
+        "labelPlacement": "above"
+      },
+      "edge.master-target": {
+        "labelT": 0.5,
+        "labelPlacement": "above"
+      },
+      "edge.events-transform": {
+        "waypoints": [
+          {
+            "x": 1210,
+            "y": 537.5
+          }
+        ],
+        "labelT": 0.5,
+        "labelPlacement": "above"
+      },
+      "edge.transactions-source": {
+        "waypoints": [
+          {
+            "x": 220,
+            "y": 537.5
+          }
+        ],
+        "labelT": 0.5,
+        "labelPlacement": "above"
+      },
+      "edge.ingress-audit": {
+        "waypoints": [
+          {
+            "x": 710,
+            "y": 435
+          },
+          {
+            "x": 500,
+            "y": 435
+          },
+          {
+            "x": 500,
+            "y": 777.5
+          }
+        ],
+        "labelT": 0.73,
+        "labelPlacement": "above"
+      },
+      "edge.transform-audit": {
+        "labelT": 0.5,
+        "labelPlacement": "above"
+      },
+      "edge.audit-sentinel": {
+        "labelT": 0.5,
+        "labelPlacement": "above"
+      }
+    },
+    "derived": null
+  },
+  "meta": {
+    "createdAt": "2026-08-30T00:00:00.000Z",
+    "updatedAt": "2026-08-30T00:00:00.000Z"
+  }
+}

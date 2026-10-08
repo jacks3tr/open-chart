@@ -24,7 +24,6 @@ const OUTPUT_DIRECTORY = join(
   'shapes',
   'generated',
 );
-const OUTPUT_PATH = join(OUTPUT_DIRECTORY, 'icon-libraries.js');
 const argumentsAfterScript = process.argv.slice(2);
 if (
   argumentsAfterScript.length > 1 ||
@@ -587,7 +586,7 @@ function isVerifiedTempPath(tempPath) {
   );
 }
 
-async function writeAtomically(source) {
+async function writeAtomically(filename, source) {
   await mkdir(OUTPUT_DIRECTORY, { recursive: true });
   const temporaryPath = join(
     OUTPUT_DIRECTORY,
@@ -606,7 +605,7 @@ async function writeAtomically(source) {
     await handle.sync();
     await handle.close();
     handle = undefined;
-    await rename(temporaryPath, OUTPUT_PATH);
+    await rename(temporaryPath, join(OUTPUT_DIRECTORY, filename));
     temporaryCreated = false;
   } catch (error) {
     if (handle !== undefined) {
@@ -637,11 +636,15 @@ async function main() {
     buildSimpleIconsLibrary(simplePackage),
     buildPhosphorLibrary(phosphorPackage),
   ]);
-  const source = renderCatalogModule(simpleIconsLibrary, phosphorLibrary);
-  if (CHECK_ONLY) {
+  const sources = renderCatalogModule(simpleIconsLibrary, phosphorLibrary);
+  for (const [filename, source] of Object.entries(sources)) {
+    if (!CHECK_ONLY) {
+      await writeAtomically(filename, source);
+      continue;
+    }
     let current;
     try {
-      current = await readFile(OUTPUT_PATH, 'utf8');
+      current = await readFile(join(OUTPUT_DIRECTORY, filename), 'utf8');
     } catch (error) {
       throw new Error('Generated icon catalog is missing; run npm run generate:icons', {
         cause: error,
@@ -650,9 +653,7 @@ async function main() {
     if (current !== source) {
       throw new Error('Generated icon catalog is stale; run npm run generate:icons');
     }
-    return;
   }
-  await writeAtomically(source);
 }
 
 main().catch((error) => {

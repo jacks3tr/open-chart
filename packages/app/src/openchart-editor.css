@@ -73,7 +73,7 @@
   --blue-strong: #0d62c7;
   --blue-soft: #e8f2ff;
   --danger: #c43d4b;
-  --paper: #f7f7f8;
+  --paper: #f5f5f3;
   --radius: 4px;
   --ease: 140ms ease;
 }
@@ -745,8 +745,7 @@ button.is-active .oc-icon { opacity: 1; }
   position: absolute;
   inset: 0;
   overflow: hidden;
-  background-color: #fff;
-  box-shadow: inset 0 0 0 1px #eef0f2;
+  background-color: var(--paper);
 }
 
 .oc-canvas-grid {
@@ -1916,10 +1915,6 @@ kbd { font: 600 9px "IBM Plex Mono", monospace; }
   transform: translate(-50%, -50%);
   width: min(560px, calc(100% - 48px));
   padding: 28px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: var(--surface);
-  box-shadow: 0 10px 40px #1424380a;
   text-align: center;
 }
 .oc-empty-canvas > .oc-icon { margin: 0 auto 16px; }

@@ -3,6 +3,8 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 import { validateDocument } from '@openchart/ir';
+import { compileTokenOperations } from '@openchart/derive';
+import { OperationEngine } from '@openchart/ops';
 
 import { buildSceneDescription, type SceneGroup, type SceneItem } from '../src/index.js';
 
@@ -29,6 +31,45 @@ function collectItems(items: readonly SceneItem[]): readonly SceneItem[] {
 }
 
 describe('buildSceneDescription', () => {
+  it.each([false, true])('renders theme geometry across shapes and connectors, with explicit overrides: %s', (override) => {
+    const parsed = validateDocument(JSON.parse(readFileSync(fixturePath, 'utf8')));
+    if (!parsed.ok) throw new Error('Invalid fixture');
+    const document = parsed.document;
+    document.nodes['system.northstar']!.container = {};
+    document.nodes['shape.review'] = {
+      ...document.nodes['service.ingress']!, id: 'shape.review', uid: 'R'.repeat(26),
+      label: 'Review', data: { shape: { libraryId: 'flowchart', entryId: 'flowchart.process' } },
+    };
+    document.layout.overrides['shape.review'] = { x: 100, y: 700, width: 180, height: 112 };
+    if (override) {
+      for (const node of Object.values(document.nodes)) {
+        node.data.borderWidth = 3;
+        node.data.cornerRadius = 17;
+      }
+      for (const edge of Object.values(document.edges)) {
+        edge.routing = { ...edge.routing, mode: 'orthogonal', lineWidth: 4.5 };
+      }
+    }
+    const engine = new OperationEngine(document);
+    expect(engine.apply({
+      txId: 'theme-geometry', actor: 'user', origin: 'beauty', baseRev: document.rev,
+      ops: compileTokenOperations(document, 'openchart-light'),
+    }).ok).toBe(true);
+    const items = collectItems(buildSceneDescription(engine.document).items);
+    for (const [id, radius] of [
+      ['node-service.ingress-card', 6],
+      ['shape-shape.review-geometry-body', 6],
+      ['container-system.northstar-surface', 8],
+    ] as const) {
+      expect(items.find((item) => item.id === id)).toMatchObject({
+        type: 'rect', radius: override ? 17 : radius, strokeWidth: override ? 3 : 1,
+      });
+    }
+    const flows = items.filter((item) => item.type === 'path' && item.id.endsWith('-flow'));
+    expect(flows.length).toBeGreaterThan(0);
+    for (const flow of flows) expect(flow).toMatchObject({ strokeWidth: override ? 4.5 : 1.5 });
+  });
+
   it.each([undefined, 18])('wraps a normal process label at readable size (font override %s)', (fontSize) => {
     const parsed = validateDocument(JSON.parse(readFileSync(fixturePath, 'utf8')));
     if (!parsed.ok) throw new Error('Invalid fixture');

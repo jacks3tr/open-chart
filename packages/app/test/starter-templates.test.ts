@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { compileTokenOperations } from '@openchart/derive';
+import { compileTokenOperations, TOKEN_PRESETS } from '@openchart/derive';
 import northstarInput from '../../../examples/northstar-integration.openchart.json';
 import { createTransformTransaction, type TransformPreview } from '@openchart/interact';
 import { validateDocument, type OpenChartDocument } from '@openchart/ir';
@@ -253,8 +253,10 @@ it('keeps MES template headings and body text readable in the dark theme', () =>
     ops: compileTokenOperations(engine.document, 'openchart-dark'),
   }).ok).toBe(true);
   const svg = renderDocumentToSvg(engine.document);
+  const tokens = TOKEN_PRESETS['openchart-dark'].tokens;
+  if (typeof tokens.textHi !== 'string' || typeof tokens.textMid !== 'string') throw new Error('Missing text tokens');
   for (const label of ['Plex MES', 'Master Data']) {
-    expect(svg).toMatch(new RegExp(`<text\\b[^>]*fill="#E6EDF6"[^>]*>${label}</text>`));
+    expect(svg).toMatch(new RegExp(`<text\\b[^>]*fill="${tokens.textHi}"[^>]*>${label}</text>`));
   }
-  expect(svg).toMatch(/<text\b[^>]*fill="#B7C3D4"[^>]*>Part Information<\/text>/);
+  expect(svg).toMatch(new RegExp(`<text\\b[^>]*fill="${tokens.textMid}"[^>]*>Part Information</text>`));
 });
