@@ -401,6 +401,10 @@ function variantGeometry(spec: BuiltinSpec): readonly ShapeGeometryDefinition[] 
         { type: 'line', x: 0.04, y: 0.72 }, { type: 'close' },
       ], ...paint }];
     case 'swimlane':
+      if (spec.id === 'architecture.swimlane') return [
+        { id: 'body', type: 'rect', fill: '=@Surface', stroke: 'none' },
+        line('header-rule', [[0, .08], [1, .08]]),
+      ];
       return [
         { id: 'body', type: 'rect', radius: 4, ...paint },
         { id: 'header', type: 'rect', x: 0, y: 0, w: 1, h: 0.16, fill: '=@Accent', fillOpacity: 0.1, stroke: 'none' },
@@ -698,6 +702,7 @@ const NETWORK_SPECS = [
 ] as const satisfies readonly BuiltinSpec[];
 
 const ARCHITECTURE_SPECS = [
+  { id: 'architecture.swimlane', name: 'Swimlane', tags: ['architecture', 'swimlane', 'lane', 'column', 'container'], variant: 'swimlane', accent: '#CBD5E1', surface: 'none', width: 360, height: 480 },
   { id: 'architecture.application', name: 'Application', tags: ['architecture', 'application', 'software'], variant: 'card', symbol: 'service', accent: '#2563EB', surface: '#EFF6FF' },
   { id: 'architecture.microservice', name: 'Microservice', tags: ['architecture', 'service', 'microservice'], variant: 'card', symbol: 'service', aliasOf: 'integration.service', accent: '#2563EB', surface: '#EFF6FF' },
   { id: 'architecture.api', name: 'API', tags: ['architecture', 'api', 'interface'], variant: 'hexagon', symbol: 'gateway', accent: '#2563EB', surface: '#EFF6FF' },

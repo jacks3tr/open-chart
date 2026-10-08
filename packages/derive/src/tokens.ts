@@ -23,28 +23,28 @@ export const TOKEN_PRESETS: Readonly<Record<TokenPresetId, TokenPreset>> = {
     id: 'openchart-light',
     label: 'OpenChart Light',
     tokens: {
-      canvas: '#FBFCFE', surface: '#FFFFFF', surfaceAlt: '#F1F4F9',
-      stroke: '#E2E8F0', strokeStrong: '#CBD5E1', textHi: '#0F172A',
-      textMid: '#475569', textLo: '#94A3B8', compute: '#2563EB',
-      computeTint: '#EFF6FF', storage: '#7C3AED', storageTint: '#F5F3FF',
-      data: '#0D9488', dataTint: '#F0FDFA', network: '#64748B',
-      networkTint: '#F8FAFC', identity: '#B45309', identityTint: '#FFFBEB',
-      external: '#94A3B8', externalTint: '#F8FAFC', danger: '#DC2626',
-      success: '#059669', typeFloor: 10, nodeRadius: 8, containerRadius: 12,
+      canvas: '#F5F5F3', surface: '#FFFFFF', surfaceAlt: '#EBECE9',
+      stroke: '#DDDEDB', strokeStrong: '#BFC3C1', textHi: '#29313A',
+      textMid: '#53606D', textLo: '#5E6874', compute: '#29313A',
+      computeTint: '#FFFFFF', storage: '#53606D', storageTint: '#EBECE9',
+      data: '#B94E2A', dataTint: '#FFF1EA', network: '#53606D',
+      networkTint: '#F5F5F3', identity: '#29313A', identityTint: '#FFFFFF',
+      external: '#5E6874', externalTint: '#F0F1EF', danger: '#DC2626',
+      success: '#059669', typeFloor: 10, nodeRadius: 6, containerRadius: 8,
     },
   },
   'openchart-dark': {
     id: 'openchart-dark',
     label: 'OpenChart Dark',
     tokens: {
-      canvas: '#0B0F17', surface: '#131A25', surfaceAlt: '#182231',
-      stroke: '#243040', strokeStrong: '#33445A', textHi: '#E6EDF6',
-      textMid: '#B7C3D4', textLo: '#8290A3', compute: '#60A5FA',
-      computeTint: '#17243A', storage: '#A78BFA', storageTint: '#211B38',
-      data: '#2DD4BF', dataTint: '#102E2D', network: '#94A3B8',
-      networkTint: '#1B2635', identity: '#F59E0B', identityTint: '#33250F',
-      external: '#A8B4C4', externalTint: '#202B39', danger: '#F87171',
-      success: '#34D399', typeFloor: 10, nodeRadius: 8, containerRadius: 12,
+      canvas: '#222730', surface: '#2B313B', surfaceAlt: '#343B46',
+      stroke: '#444C58', strokeStrong: '#687482', textHi: '#F4F3EF',
+      textMid: '#BFC7D0', textLo: '#A3ADB9', compute: '#F4F3EF',
+      computeTint: '#2B313B', storage: '#BFC7D0', storageTint: '#343B46',
+      data: '#F2946D', dataTint: '#3B302E', network: '#BFC7D0',
+      networkTint: '#222730', identity: '#F4F3EF', identityTint: '#2B313B',
+      external: '#A3ADB9', externalTint: '#292F38', danger: '#F87171',
+      success: '#34D399', typeFloor: 10, nodeRadius: 6, containerRadius: 8,
     },
   },
   'aws-official': {
@@ -146,7 +146,7 @@ function readToken(tokens: Theme['tokens'], key: string): string {
 function themedStyleTokens(style: Style, preset: TokenPreset): Style['tokens'] {
   const next: Style['tokens'] = { ...style.tokens };
   for (const key of [
-    'accent', 'surface', 'stroke', 'textHi', 'textMid', 'textLo', 'radius', 'strokeWidth',
+    'accent', 'surface', 'stroke', 'textHi', 'textMid', 'textLo', 'radius', 'containerRadius', 'strokeWidth',
   ]) {
     delete next[key];
   }
@@ -169,7 +169,8 @@ function themedStyleTokens(style: Style, preset: TokenPreset): Style['tokens'] {
   next.textHi = readToken(preset.tokens, 'textHi');
   next.textMid = readToken(preset.tokens, 'textMid');
   next.textLo = readToken(preset.tokens, 'textLo');
-  next.radius = 8;
+  next.radius = preset.tokens.nodeRadius ?? 8;
+  next.containerRadius = preset.tokens.containerRadius ?? 12;
   next.strokeWidth = 1;
   return next;
 }

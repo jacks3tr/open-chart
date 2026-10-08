@@ -34,9 +34,9 @@ describe('shipped shape libraries', () => {
       'phosphor',
     ]);
     expect(libraries.map((library) => library.entries.length)).toEqual([
-      21, 4, 33, 40, 40, 22, 20, 27, 28, 6, 6, 50, 50, 50, 3_457, 1_512,
+      21, 4, 33, 40, 40, 22, 20, 27, 29, 6, 6, 50, 50, 50, 3_457, 1_512,
     ]);
-    expect(libraries.slice(0, 14).reduce((total, library) => total + library.entries.length, 0)).toBe(397);
+    expect(libraries.slice(0, 14).reduce((total, library) => total + library.entries.length, 0)).toBe(398);
     expect(validateShapeLibraries()).toEqual([]);
 
     const postgresql = getShapeLibraryEntry('simple-icons', 'simple.postgresql');

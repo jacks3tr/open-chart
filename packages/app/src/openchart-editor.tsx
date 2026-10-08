@@ -120,7 +120,7 @@ import {
   guardDesktopClose,
   openExternalLink,
   openDesktopDocument,
-  parseDesktopDocument,
+  readBrowserDocument,
   saveDesktopDocument,
   saveDesktopExport,
   serializeOpenChartDocument,
@@ -131,9 +131,9 @@ import { disposeLayoutWorker, requestBeautyPass, requestLayout } from './layout-
 import { createEditorRasterCaches, paintCanvasLayer } from './canvas-layer.js';
 import {
   loadBrowserTextExport,
-  loadFullShapeCatalog,
+  loadShapeCatalog,
   loadStarterTemplates,
-  type FullShapeCatalogModule,
+  type LoadedShapeCatalog,
   type StarterTemplatesModule,
 } from './lazy-features.js';
 import { LiveDocumentSession } from './live-document-session.js';
@@ -150,6 +150,7 @@ import { createBlankInitialDocument } from './initial-document.js';
 export interface OpenChartEditorProps {
   readonly initialDocument: OpenChartDocument;
   readonly initialFilename?: string;
+  readonly initialShapeCatalog?: LoadedShapeCatalog;
 }
 
 type EditorTool = 'select' | 'connector' | 'pan' | 'lasso';
@@ -363,6 +364,7 @@ const SHAPE_LIBRARIES = [
 const SHAPE_LIBRARY_TOTAL = SHAPE_LIBRARIES.reduce((total, library) => total + library.count, 0);
 
 function shapeKind(result: ShapeLibrarySearchResult): InsertNodeKind {
+  if (result.entry.id === 'architecture.swimlane') return 'container';
   const terms = `${result.entry.id} ${result.entry.tags.join(' ')}`;
   if (/database|storage|cache|dns/.test(terms)) {
     return 'database';
@@ -412,13 +414,13 @@ function validCatalogShapeRef(value: unknown): CatalogShapeRef | undefined {
   return { libraryId: candidate.libraryId, entryId: candidate.entryId };
 }
 
-function documentUsesDecorativeShapes(document: OpenChartDocument): boolean {
-  return Object.values(document.nodes).some((node) => {
+export function documentDecorativeLibraryIds(document: OpenChartDocument): readonly string[] {
+  return [...new Set(Object.values(document.nodes).flatMap((node) => {
     const shape = node.data.shape;
-    if (shape === null || typeof shape !== 'object' || Array.isArray(shape)) return false;
+    if (shape === null || typeof shape !== 'object' || Array.isArray(shape)) return [];
     const libraryId = (shape as { readonly libraryId?: unknown }).libraryId;
-    return typeof libraryId === 'string' && isDecorativeShapeLibraryId(libraryId);
-  });
+    return typeof libraryId === 'string' && isDecorativeShapeLibraryId(libraryId) ? [libraryId] : [];
+  }))];
 }
 
 export function normalizeCatalogShapeRefs(value: unknown, limit: number): readonly CatalogShapeRef[] {
@@ -1224,7 +1226,6 @@ const CONNECTOR_HANDLE_OFFSET_PX = 11;
 const CONNECTOR_DRAG_THRESHOLD_PX = 4;
 const CONNECTOR_ANCHOR_KIND = 'connector-anchor';
 const CONNECTOR_ANCHOR_SIZE = 0.01;
-const MAX_BROWSER_DOCUMENT_BYTES = 32 * 1024 * 1024;
 
 export function buildConnectorCreateOperations(
   fromPort: Port,
@@ -3573,7 +3574,7 @@ interface BeautyPreview {
   readonly plan: BeautyPassPlan;
 }
 
-export function OpenChartEditor({ initialDocument, initialFilename }: OpenChartEditorProps) {
+export function OpenChartEditor({ initialDocument, initialFilename, initialShapeCatalog }: OpenChartEditorProps) {
   const [engineRef] = useState(() => ({ current: new OperationEngine(initialDocument) }));
   const [document, setDocument] = useState(engineRef.current.document);
   const [documentPath, setDocumentPath] = useState<string>();
@@ -3628,7 +3629,7 @@ export function OpenChartEditor({ initialDocument, initialFilename }: OpenChartE
   }, []);
   const [clipboard, setClipboard] = useState<ClipboardPayload | null>(null);
   const [styleSourceId, setStyleSourceId] = useState<string | null>(null);
-  const [fullShapeCatalog, setFullShapeCatalog] = useState<FullShapeCatalogModule>();
+  const [shapeCatalog, setShapeCatalog] = useState<LoadedShapeCatalog | undefined>(initialShapeCatalog);
   const [starterTemplateModule, setStarterTemplateModule] = useState<StarterTemplatesModule>();
   const transactionCounter = useRef(0);
   const commandDispatcher = useRef<(commandId: string) => void>(() => undefined);
@@ -3639,9 +3640,9 @@ export function OpenChartEditor({ initialDocument, initialFilename }: OpenChartE
   const documentPathRef = useRef(documentPath);
   documentPathRef.current = documentPath;
   const liveSessionRef = useRef<LiveDocumentSession | null>(null);
-  const searchCatalog = fullShapeCatalog?.searchShapeLibraries ?? searchBuiltinShapeLibraries;
-  const getCatalogEntry = fullShapeCatalog?.getShapeLibraryEntry ?? getBuiltinShapeLibraryEntry;
-  const resolveCatalogShape = fullShapeCatalog?.resolveLibraryShape ?? resolveBuiltinLibraryShape;
+  const searchCatalog = shapeCatalog?.searchShapeLibraries ?? searchBuiltinShapeLibraries;
+  const getCatalogEntry = shapeCatalog?.getShapeLibraryEntry ?? getBuiltinShapeLibraryEntry;
+  const resolveCatalogShape = shapeCatalog?.resolveLibraryShape ?? resolveBuiltinLibraryShape;
   const shapeResults = useMemo(
     () => searchCatalog(shapeQuery, {
       ...(shapeLibraryId === 'all' ? {} : { libraryIds: [shapeLibraryId] }),
@@ -3680,18 +3681,20 @@ export function OpenChartEditor({ initialDocument, initialFilename }: OpenChartE
   );
 
   useEffect(() => {
-    const shouldLoadFullCatalog =
-      shapeManagerOpen ||
-      railShapeQuery.trim().length > 0 ||
-      (railLibraryId !== 'featured' && isDecorativeShapeLibraryId(railLibraryId)) ||
-      (shapeLibraryId !== 'all' && isDecorativeShapeLibraryId(shapeLibraryId)) ||
-      preferences.recentShapes.some((ref) => isDecorativeShapeLibraryId(ref.libraryId)) ||
-      preferences.favoriteShapes.some((ref) => isDecorativeShapeLibraryId(ref.libraryId)) ||
-      documentUsesDecorativeShapes(document);
-    if (!shouldLoadFullCatalog || fullShapeCatalog !== undefined) return;
+    const requested = new Set([
+      ...documentDecorativeLibraryIds(document),
+      ...preferences.recentShapes.map((ref) => ref.libraryId),
+      ...preferences.favoriteShapes.map((ref) => ref.libraryId),
+      ...(railShapeQuery.trim().length > 0 && railLibraryId === 'featured'
+        ? DECORATIVE_SHAPE_LIBRARY_SUMMARIES.map((library) => library.id) : [railLibraryId]),
+      ...(shapeManagerOpen && shapeLibraryId === 'all'
+        ? DECORATIVE_SHAPE_LIBRARY_SUMMARIES.map((library) => library.id) : [shapeLibraryId]),
+    ].filter(isDecorativeShapeLibraryId));
+    const loadedIds = shapeCatalog?.listShapeLibraries().map((library) => library.id) ?? [];
+    if ([...requested].every((id) => loadedIds.includes(id))) return;
     let cancelled = false;
-    void loadFullShapeCatalog().then((catalog) => {
-      if (!cancelled) setFullShapeCatalog(catalog);
+    void loadShapeCatalog([...loadedIds, ...requested]).then((catalog) => {
+      if (!cancelled) setShapeCatalog(catalog);
     }).catch((error: unknown) => {
       if (!cancelled) {
         setStatus(error instanceof Error ? error.message : 'Decorative icon catalog could not be loaded');
@@ -3700,7 +3703,7 @@ export function OpenChartEditor({ initialDocument, initialFilename }: OpenChartE
     return () => { cancelled = true; };
   }, [
     document,
-    fullShapeCatalog,
+    shapeCatalog,
     preferences.favoriteShapes,
     preferences.recentShapes,
     railLibraryId,
@@ -3789,11 +3792,11 @@ export function OpenChartEditor({ initialDocument, initialFilename }: OpenChartE
     () => buildSceneDescription(displayDocument, {
       pageId: activePageId,
       routingStrategy: preview === null ? 'document' : 'fast',
-      ...(fullShapeCatalog === undefined
+      ...(shapeCatalog === undefined
         ? {}
-        : { shapeResolver: fullShapeCatalog.resolveLibraryShape }),
+        : { shapeResolver: shapeCatalog.resolveLibraryShape }),
     }),
-    [activePageId, displayDocument, fullShapeCatalog, preview],
+    [activePageId, displayDocument, shapeCatalog, preview],
   );
   const items = useMemo(
     () => selectableItems(document, activePageId, frames),
@@ -4060,7 +4063,7 @@ export function OpenChartEditor({ initialDocument, initialFilename }: OpenChartE
         if (!applied.ok) throw new Error(applied.diagnostics[0]?.message ?? 'Beauty Pass preview could not be built');
       }
       const options = { pageId: activePageId,
-        ...(fullShapeCatalog === undefined ? {} : { shapeResolver: fullShapeCatalog.resolveLibraryShape }) };
+        ...(shapeCatalog === undefined ? {} : { shapeResolver: shapeCatalog.resolveLibraryShape }) };
       const before = buildSceneDescription(source, options);
       const after = buildSceneDescription(previewEngine.document, options);
       const beforeFrames = resolveFrames(source, activePageId);
@@ -4088,7 +4091,7 @@ export function OpenChartEditor({ initialDocument, initialFilename }: OpenChartE
         setDerivationBusy(false);
       }
     }
-  }, [activePageId, activePresetId, fullShapeCatalog, layoutMode, liveSession, nextTransactionId, selection.selectedIds]);
+  }, [activePageId, activePresetId, shapeCatalog, layoutMode, liveSession, nextTransactionId, selection.selectedIds]);
 
   const applyBeautyPreview = (): void => {
     if (beautyPreview === null || beautyPreview.source !== liveSession.document) {
@@ -4097,7 +4100,7 @@ export function OpenChartEditor({ initialDocument, initialFilename }: OpenChartE
     }
     if (commit(beautyPreview.envelope, 'Beauty Pass applied · Ctrl+Z to undo')) {
       setCamera(fitCamera(buildSceneDescription(liveSession.document, { pageId: activePageId,
-        ...(fullShapeCatalog === undefined ? {} : { shapeResolver: fullShapeCatalog.resolveLibraryShape }) }), viewport));
+        ...(shapeCatalog === undefined ? {} : { shapeResolver: shapeCatalog.resolveLibraryShape }) }), viewport));
       closeBeautyPreview();
     }
   };
@@ -4219,14 +4222,16 @@ export function OpenChartEditor({ initialDocument, initialFilename }: OpenChartE
         styleId,
         data:
           item.shape !== undefined
-            ? { shape: item.shape }
+            ? { shape: item.shape, ...(item.shape.entryId === 'architecture.swimlane'
+              ? { fillColor: 'none', borderColor: '#CBD5E1', borderWidth: 1, textColor: '#53657A', fontSize: 13, fontWeight: 600 }
+              : {}) }
             : kind === 'text'
             ? { eyebrow: 'NOTE', subtitle: 'Double-click to edit' }
             : { eyebrow: kind.toUpperCase(), subtitle: 'New architecture element', status: 'DRAFT' },
         ...(kind === 'container'
           ? {
               container: {
-                title: label,
+                ...(item.shape?.entryId === 'architecture.swimlane' ? {} : { title: label }),
                 magnetize: true,
                 clip: false,
                 autoGrow: true,
@@ -5141,20 +5146,26 @@ export function OpenChartEditor({ initialDocument, initialFilename }: OpenChartE
   );
 
   const replaceEditorDocument = useCallback(
-    (opened: {
+    async (opened: {
       readonly document: OpenChartDocument;
       readonly path?: string;
       readonly browserName?: string;
-    }): void => {
+    }): Promise<void> => {
+      const libraryIds = documentDecorativeLibraryIds(opened.document);
+      const openedCatalog = libraryIds.length === 0 ? shapeCatalog : await loadShapeCatalog([
+        ...libraryIds,
+        ...(shapeCatalog?.listShapeLibraries().map((library) => library.id) ?? []),
+      ]);
       const nextEngine = new OperationEngine(opened.document);
       const pageId = orderedPages(nextEngine.document)[0]?.id ?? '';
       const nextScene = buildSceneDescription(nextEngine.document, {
         pageId,
         routingStrategy: 'document',
-        ...(fullShapeCatalog === undefined
+        ...(openedCatalog === undefined
           ? {}
-          : { shapeResolver: fullShapeCatalog.resolveLibraryShape }),
+          : { shapeResolver: openedCatalog.resolveLibraryShape }),
       });
+      if (openedCatalog !== undefined) setShapeCatalog(openedCatalog);
       liveSession.reset(nextEngine);
       derivationRef.current?.abort();
       derivationRef.current = null;
@@ -5174,7 +5185,7 @@ export function OpenChartEditor({ initialDocument, initialFilename }: OpenChartE
       setOutputOpen(false);
       transactionCounter.current = 0;
     },
-    [fullShapeCatalog, liveSession, viewport],
+    [shapeCatalog, liveSession, viewport],
   );
 
   const openDocument = useCallback(async (): Promise<void> => {
@@ -5195,7 +5206,7 @@ export function OpenChartEditor({ initialDocument, initialFilename }: OpenChartE
       if (opened === undefined) {
         return;
       }
-      replaceEditorDocument(opened);
+      await replaceEditorDocument(opened);
       setStatus(`Opened ${displayFilename(opened.path)}`);
     } catch (error: unknown) {
       setStatus(error instanceof Error ? error.message : String(error));
@@ -5208,12 +5219,8 @@ export function OpenChartEditor({ initialDocument, initialFilename }: OpenChartE
     async (file: File): Promise<void> => {
       setFileBusy(true);
       try {
-        if (file.size > MAX_BROWSER_DOCUMENT_BYTES) {
-          setStatus('The selected file exceeds the 32 MiB document limit');
-          return;
-        }
-        const opened = parseDesktopDocument(await file.text());
-        replaceEditorDocument({ document: opened, browserName: file.name });
+        const opened = await readBrowserDocument(file);
+        await replaceEditorDocument({ document: opened, browserName: file.name });
         setStatus(`Opened ${file.name}`);
       } catch (error: unknown) {
         setStatus(error instanceof Error ? error.message : String(error));
@@ -5232,11 +5239,7 @@ export function OpenChartEditor({ initialDocument, initialFilename }: OpenChartE
       }
       setFileBusy(true);
       try {
-        if (file.size > MAX_BROWSER_DOCUMENT_BYTES) {
-          setStatus('The selected file exceeds the 32 MiB document limit');
-          return;
-        }
-        const source = parseDesktopDocument(await file.text());
+        const source = await readBrowserDocument(file);
         const imported = createOpenChartPageImportTransaction(document, source, {
           txId: nextTransactionId('import-openchart'),
           targetPageId: activePage.id,
@@ -5282,26 +5285,26 @@ export function OpenChartEditor({ initialDocument, initialFilename }: OpenChartE
       }
       setFileBusy(true);
       try {
-        const savedPath = await saveDesktopDocument(
-          document,
-          saveAs ? undefined : documentPath,
-          safeFilename(document.title),
-        );
-        if (savedPath === undefined) {
-          return;
-        }
-        documentPathRef.current = savedPath;
-        setDocumentPath(savedPath);
-        setSavedDocument(document);
-        setOutputOpen(false);
-        setStatus(`Saved ${displayFilename(savedPath)}`);
+        await liveSession.save(async (currentDocument) => {
+          const savedPath = await saveDesktopDocument(
+            currentDocument,
+            saveAs ? undefined : documentPathRef.current,
+            safeFilename(currentDocument.title),
+          );
+          if (savedPath === undefined) return;
+          documentPathRef.current = savedPath;
+          setDocumentPath(savedPath);
+          setSavedDocument(currentDocument);
+          setOutputOpen(false);
+          setStatus(`Saved ${displayFilename(savedPath)}`);
+        });
       } catch (error: unknown) {
         setStatus(error instanceof Error ? error.message : String(error));
       } finally {
         setFileBusy(false);
       }
     },
-    [browserSaveName, desktopRuntime, document, documentPath, fileBusy],
+    [browserSaveName, desktopRuntime, document, fileBusy, liveSession],
   );
 
   const executeCommand = useCallback(
@@ -6388,9 +6391,9 @@ export function OpenChartEditor({ initialDocument, initialFilename }: OpenChartE
         setOutputOpen(false);
         return;
       }
-      // Export a committed scene with the full icon resolver, even if its lazy UI
-      // load has not finished yet.
-      const catalog = documentUsesDecorativeShapes(document) ? await loadFullShapeCatalog() : undefined;
+      // Wait for the document's icon libraries even if their UI load is pending.
+      const libraryIds = documentDecorativeLibraryIds(document);
+      const catalog = libraryIds.length > 0 ? await loadShapeCatalog(libraryIds) : undefined;
       const exportScene = buildSceneDescription(document, { pageId: activePageId,
         ...(catalog === undefined ? {} : { shapeResolver: catalog.resolveLibraryShape }) });
       const svg = await renderPortableSvg(exportScene);

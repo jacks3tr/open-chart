@@ -75,19 +75,6 @@ function firstPageId(document: OpenChartDocument): string | undefined {
     })[0]?.id;
 }
 
-function fallbackNodeStyleId(document: OpenChartDocument): string {
-  const preferred = document.styles['style.fabric'] === undefined ? undefined : 'style.fabric';
-  const fallback = preferred ?? Object.keys(document.styles).sort()[0];
-  if (fallback === undefined) throw new Error('Import requires at least one node style');
-  return fallback;
-}
-
-function fallbackEdgeStyleId(document: OpenChartDocument): string {
-  return Object.values(document.styles)
-    .filter((style) => style.role.toLowerCase().includes('flow'))
-    .toSorted((left, right) => left.id.localeCompare(right.id))[0]?.id ?? fallbackNodeStyleId(document);
-}
-
 function sourceLayout(document: OpenChartDocument, nodeId: string): LayoutOverride | undefined {
   const explicit = document.layout.overrides[nodeId];
   if (explicit !== undefined) return { ...explicit };
@@ -151,11 +138,25 @@ export function createOpenChartPageImportTransaction(
   const nodeIdMap = new Map<string, string>();
   const portIdMap = new Map<string, string>();
   const makeUid = request.makeUid ?? randomUid;
-  const nodeFallback = fallbackNodeStyleId(target);
-  const edgeFallback = fallbackEdgeStyleId(target);
   const ops: Operation[] = [...released.nodeIds]
     .sort((left, right) => left.localeCompare(right))
     .map((id): Operation => ({ op: 'delete_node', id }));
+
+  const styleIdMap = new Map<string, string>();
+  const styleReserved = new Set<string>();
+  for (const styleId of new Set([...sourceNodes, ...sourceEdges].map((entity) => entity.styleId))) {
+    const style = source.styles[styleId];
+    if (style === undefined) throw new Error(`Imported style ${styleId} does not exist`);
+    const existing = target.styles[styleId];
+    if (existing?.role === style.role && JSON.stringify(existing.tokens) === JSON.stringify(style.tokens)) {
+      styleIdMap.set(styleId, styleId);
+      styleReserved.add(styleId);
+      continue;
+    }
+    const id = allocateImportId(target.styles, new Set(), styleReserved, styleId);
+    styleIdMap.set(styleId, id);
+    ops.push({ op: 'create_style', style: { ...style, id, uid: makeUid(), tokens: { ...style.tokens } } });
+  }
 
   for (const sourceNode of sourceNodes) {
     nodeIdMap.set(
@@ -185,7 +186,7 @@ export function createOpenChartPageImportTransaction(
       uid: makeUid(),
       pageId: request.targetPageId,
       layerId: request.targetLayerId,
-      styleId: target.styles[sourceNode.styleId] === undefined ? nodeFallback : sourceNode.styleId,
+      styleId: styleIdMap.get(sourceNode.styleId)!,
       data: { ...sourceNode.data },
       ...(parentId === undefined ? {} : { parentId }),
     };
@@ -223,7 +224,7 @@ export function createOpenChartPageImportTransaction(
       toPortId,
       pageId: request.targetPageId,
       layerId: request.targetLayerId,
-      styleId: target.styles[sourceEdge.styleId] === undefined ? edgeFallback : sourceEdge.styleId,
+      styleId: styleIdMap.get(sourceEdge.styleId)!,
       data: { ...sourceEdge.data },
     };
     ops.push({ op: 'create_edge', edge });

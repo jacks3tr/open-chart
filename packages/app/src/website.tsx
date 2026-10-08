@@ -8,9 +8,10 @@ import folder from '@phosphor-icons/core/regular/folder-open.svg';
 import download from '@phosphor-icons/core/regular/download-simple.svg';
 import grid from '@phosphor-icons/core/regular/squares-four.svg';
 import file from '@phosphor-icons/core/regular/file.svg';
-import { OpenChartEditor } from './openchart-editor.js';
+import { OpenChartEditor, documentDecorativeLibraryIds } from './openchart-editor.js';
+import { loadShapeCatalog, type LoadedShapeCatalog } from './lazy-features.js';
 import { createBlankInitialDocument } from './initial-document.js';
-import { parseDesktopDocument } from './desktop-file.js';
+import { readBrowserDocument } from './desktop-file.js';
 import { STARTER_TEMPLATES, createStarterTemplateTransaction, type StarterTemplateDefinition } from './starter-templates.js';
 import './website.css';
 
@@ -29,7 +30,7 @@ function templateDocument(base: OpenChartDocument, template: StarterTemplateDefi
 }
 
 export function OpenChartWebsite({ base }: { base: OpenChartDocument }) {
-  const [active, setActive] = useState<{ document: OpenChartDocument; filename?: string }>();
+  const [active, setActive] = useState<{ document: OpenChartDocument; filename?: string; catalog?: LoadedShapeCatalog }>();
   const [home, setHome] = useState(true);
   const [session, setSession] = useState(0);
   const [category, setCategory] = useState('All templates');
@@ -40,9 +41,16 @@ export function OpenChartWebsite({ base }: { base: OpenChartDocument }) {
     return { template, document, preview: `data:image/svg+xml;charset=utf-8,${encodeURIComponent(renderDocumentToSvg(document))}` };
   }), [base]);
 
-  function open(document: OpenChartDocument, filename?: string) {
+  async function open(document: OpenChartDocument, filename?: string) {
     if (active && !window.confirm('Start another diagram? Download your current work first if you want to keep it.')) return;
-    setActive({ document, ...(filename === undefined ? {} : { filename }) }); setSession((value) => value + 1); setHome(false); setError('');
+    try {
+      const libraries = documentDecorativeLibraryIds(document);
+      const catalog = libraries.length === 0 ? undefined : await loadShapeCatalog(libraries);
+      setActive({ document, ...(filename === undefined ? {} : { filename }), ...(catalog === undefined ? {} : { catalog }) });
+      setSession((value) => value + 1); setHome(false); setError('');
+    } catch (reason: unknown) {
+      setError(reason instanceof Error ? reason.message : 'Unable to open this file.');
+    }
   }
 
   return <div className="web-shell" onKeyDownCapture={home ? (event) => event.stopPropagation() : undefined}>
@@ -51,10 +59,10 @@ export function OpenChartWebsite({ base }: { base: OpenChartDocument }) {
       <nav aria-label="Website navigation"><a href="https://github.com/jacks3tr/open-chart" target="_blank" rel="noreferrer">GitHub <Icon src={arrow} /></a></nav>
     </header>
     <main className="web-home" hidden={!home}>
-      <div className="web-heading"><h1>Diagrams</h1><div className="web-actions"><button className="web-button web-secondary" onClick={() => input.current?.click()}><Icon src={folder} />Open file</button><button className="web-button web-primary" onClick={() => open(createBlankInitialDocument(base))}><Icon src={plus} />New diagram</button></div></div>
+      <div className="web-heading"><h1>Diagrams</h1><div className="web-actions"><button className="web-button web-secondary" onClick={() => input.current?.click()}><Icon src={folder} />Open file</button><button className="web-button web-primary" onClick={() => { void open(createBlankInitialDocument(base)); }}><Icon src={plus} />New diagram</button></div></div>
       <input ref={input} type="file" accept=".json,.openchart.json,.openchart,application/json" hidden onChange={(event) => {
         const selected = event.currentTarget.files?.[0]; event.currentTarget.value = '';
-        if (selected) void selected.text().then((text) => open(parseDesktopDocument(text), selected.name)).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'Unable to open this file.'));
+        if (selected) void readBrowserDocument(selected).then((document) => open(document, selected.name)).catch((reason: unknown) => setError(reason instanceof Error ? reason.message : 'Unable to open this file.'));
       }} />
       {error && <p role="alert" className="web-error">{error}</p>}
       {active && <button className="web-resume" onClick={() => setHome(false)}>Your diagram is still open. <strong>Return to editor →</strong></button>}
@@ -69,13 +77,13 @@ export function OpenChartWebsite({ base }: { base: OpenChartDocument }) {
       </section>
       <section className="web-templates" aria-labelledby="templates-title"><div className="web-section-heading"><h2 id="templates-title">Templates</h2></div>
         <div className="web-filters" aria-label="Filter templates">{['All templates', 'Process', 'Architecture', 'Data & networks'].map((label) => <button key={label} aria-pressed={category === label} onClick={() => setCategory(label)}>{label === 'All templates' && <Icon src={grid} />}{label}</button>)}</div>
-        <div className="web-template-grid">{templates.filter(({ template }) => category === 'All templates' || (category === 'Process' ? template.id === 'flowchart' : category === 'Architecture' ? ['mes-erp', 'integration', 'cloud'].includes(template.id) : ['uml-erd', 'network'].includes(template.id))).map(({ template, document, preview }) => <button className="web-template" key={template.id} onClick={() => open(document)}>
+        <div className="web-template-grid">{templates.filter(({ template }) => category === 'All templates' || (category === 'Process' ? template.id === 'flowchart' : category === 'Architecture' ? ['mes-erp', 'integration', 'cloud'].includes(template.id) : ['uml-erd', 'network'].includes(template.id))).map(({ template, document, preview }) => <button className="web-template" key={template.id} onClick={() => { void open(document); }}>
           <div className={`web-template-preview web-preview-${template.id}`}><img src={preview} alt={`${template.name} preview`} /><span>Use template <Icon src={arrow} /></span></div><div className="web-template-meta"><div><small>{template.section}</small><h3>{template.name}</h3></div><Icon src={arrow} /></div>
         </button>)}</div>
       </section>
       <section className="web-export" aria-labelledby="export-title"><div className="web-export-icon"><Icon src={download} /></div><div><h2 id="export-title">Export</h2><p>Download from the editor. Save as JSON to edit later.</p></div><div className="web-formats">{['SVG', 'PNG', 'PDF', 'PPTX', 'JSON'].map((format) => <span key={format}><Icon src={file} />{format}</span>)}</div></section>
 
     </main>
-    {active && <div className="web-editor" hidden={home}><OpenChartEditor key={session} initialDocument={active.document} {...(active.filename === undefined ? {} : { initialFilename: active.filename })} /></div>}
+    {active && <div className="web-editor" hidden={home}><OpenChartEditor key={session} initialDocument={active.document} {...(active.filename === undefined ? {} : { initialFilename: active.filename })} {...(active.catalog === undefined ? {} : { initialShapeCatalog: active.catalog })} /></div>}
   </div>;
 }

@@ -65,6 +65,13 @@ export function parseDesktopDocument(contents: string): OpenChartDocument {
   return validation.document;
 }
 
+export async function readBrowserDocument(file: Pick<File, 'size' | 'text'>): Promise<OpenChartDocument> {
+  if (file.size > 32 * 1024 * 1024) {
+    throw new Error('The selected file exceeds the 32 MiB document limit');
+  }
+  return parseDesktopDocument(await file.text());
+}
+
 export function serializeOpenChartDocument(document: OpenChartDocument, format: 'json' | 'openchart' = 'json'): string {
   if (format === 'openchart') return exportDocumentToOpenChartCode(document);
   return `${JSON.stringify(document, null, 2)}\n`;

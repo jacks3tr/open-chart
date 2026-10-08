@@ -307,6 +307,7 @@ interface NodeStyle {
 
 interface EdgeStyle {
   readonly stroke: string;
+  readonly strokeWidth?: number;
   readonly label: string;
   readonly dash?: readonly number[];
 }
@@ -670,8 +671,9 @@ function nodeBorderDash(node: Node): readonly number[] | undefined {
 
 function nodeStyle(node: Node, style: Style | undefined): NodeStyle {
   const borderDash = nodeBorderDash(node);
-  const borderWidth = readNumber(node.data, 'borderWidth');
-  const cornerRadius = readNumber(node.data, 'cornerRadius');
+  const borderWidth = readNumber(node.data, 'borderWidth') ?? readNumber(style?.tokens, 'strokeWidth');
+  const cornerRadius = readNumber(node.data, 'cornerRadius') ??
+    readNumber(style?.tokens, node.container === undefined ? 'radius' : 'containerRadius');
   return {
     accent:
       safeColor(readString(node.data, 'borderColor')) ??
@@ -876,8 +878,10 @@ function fallbackEdgeStroke(edge: Edge, style: Style | undefined): string {
 
 export function edgeStyle(edge: Edge, style: Style | undefined): EdgeStyle {
   const role = textValue(style?.role, edge.styleId || 'flow');
+  const strokeWidth = readNumber(style?.tokens, 'strokeWidth');
   const common = {
     stroke: safeColor(edge.data.strokeColor) ?? safeColor(readString(style?.tokens, 'stroke')) ?? fallbackEdgeStroke(edge, style),
+    ...(strokeWidth === undefined ? {} : { strokeWidth: clamp(strokeWidth, 0.5, 10) }),
     label: readString(style?.tokens, 'label') ?? role,
   };
   const dash = safeDash(readString(style?.tokens, 'dash'));
@@ -1602,6 +1606,7 @@ function renderContainer(
   children: readonly SceneGroup[],
 ): SceneGroup {
   const id = `container-${sanitizeId(node.id)}`;
+  const swimlane = readString(node.data.shape, 'entryId') === 'architecture.swimlane';
   const content: SceneGroup = {
     type: 'group',
     id: `${id}-content`,
@@ -1628,18 +1633,50 @@ function renderContainer(
     role: 'container',
     entityId: node.id,
     ariaLabel: nodeAriaLabel(node, container.title),
-    children: [
+    ...(swimlane ? { opacity: style.opacity } : {}),
+    children: swimlane ? [
+      {
+        type: 'rect', id: `${id}-surface`, layer: 'background',
+        frame: container.frame, fill: style.surface,
+      },
+      {
+        type: 'path', id: `${id}-header-rule`, layer: 'background',
+        commands: [
+          { type: 'move', to: { x: container.titleFrame.x, y: container.titleFrame.y + container.titleFrame.height } },
+          { type: 'line', to: { x: container.titleFrame.x + container.titleFrame.width, y: container.titleFrame.y + container.titleFrame.height } },
+        ],
+        stroke: style.accent, strokeWidth: style.borderWidth ?? 1,
+        ...(style.borderDash === undefined ? {} : { dash: style.borderDash }),
+      },
+      {
+        type: 'text', id: `${id}-title`,
+        value: ellipsis(container.title, container.titleFrame.width, (readNumber(node.data, 'fontSize') ?? 13) * 0.6),
+        at: {
+          x: node.data.textAlign === 'right' ? container.titleFrame.x + container.titleFrame.width
+            : node.data.textAlign === 'center' ? container.titleFrame.x + container.titleFrame.width / 2 : container.titleFrame.x,
+          y: container.titleFrame.y + 23,
+        },
+        anchor: node.data.textAlign === 'right' ? 'end' : node.data.textAlign === 'center' ? 'middle' : 'start',
+        fill: safeColor(node.data.textColor) ?? PALETTE.slate,
+        fontFamily: readString(node.data, 'fontFamily') ?? 'IBM Plex Sans, sans-serif',
+        fontSize: clamp(readNumber(node.data, 'fontSize') ?? 13, 8, 96),
+        fontWeight: clamp(readNumber(node.data, 'fontWeight') ?? 600, 100, 900),
+        ...(node.data.fontStyle === 'italic' ? { fontStyle: 'italic' as const } : {}),
+        ...(node.data.underline === true ? { underline: true } : {}),
+      },
+      content,
+    ] : [
       {
         type: 'rect',
         id: `${id}-surface`,
         layer: 'background',
         frame: container.frame,
-        radius: 12,
+        radius: style.cornerRadius ?? 12,
         fill: style.accent,
         fillOpacity: 0.045,
         stroke: style.accent,
         strokeOpacity: 0.48,
-        strokeWidth: 2,
+        strokeWidth: style.borderWidth ?? 2,
         dash: [6, 3],
       },
       {
@@ -1647,7 +1684,7 @@ function renderContainer(
         id: `${id}-title-bar`,
         layer: 'background',
         frame: container.titleFrame,
-        radius: 12,
+        radius: style.cornerRadius ?? 12,
         fill: style.accent,
         fillOpacity: 0.08,
       },
@@ -1783,7 +1820,7 @@ function renderEdge(
   const edgeId = `edge-${sanitizeId(edge.id)}`;
   const markerStart = sceneMarker(edge.routing?.startMarker, 'none', style.stroke);
   const markerEnd = sceneMarker(edge.routing?.endMarker, 'arrow', style.stroke);
-  const lineWidth = edge.routing?.lineWidth ?? 2.4;
+  const lineWidth = edge.routing?.lineWidth ?? style.strokeWidth ?? 2.4;
   const lineDash = edge.routing?.lineStyle === 'solid'
     ? undefined
     : edge.routing?.lineStyle === 'dashed'
@@ -1828,8 +1865,6 @@ function renderEdge(
         radius: 6,
         fill: PALETTE.paper,
         fillOpacity: 0.95,
-        stroke: style.stroke,
-        strokeOpacity: 0.2,
         minZoom: 0.25,
       },
       {
@@ -2024,6 +2059,7 @@ function renderConnectorJumps(
       return;
     }
     const commands = jumpCommands(orientation, crossing.point, style);
+    const lineWidth = routed.edge.routing?.lineWidth ?? routed.style.strokeWidth ?? 2.4;
     const id = `edge-${sanitizeId(routed.edge.id)}-jump-${index}`;
     const children: SceneItem[] = [
       {
@@ -2032,7 +2068,7 @@ function renderConnectorJumps(
         commands,
         fill: 'none',
         stroke: PALETTE.paper,
-        strokeWidth: 8,
+        strokeWidth: lineWidth + 5.6,
         lineCap: 'round',
         lineJoin: 'round',
       },
@@ -2044,7 +2080,7 @@ function renderConnectorJumps(
         commands,
         fill: 'none',
         stroke: routed.style.stroke,
-        strokeWidth: 2.4,
+        strokeWidth: lineWidth,
         lineCap: 'round',
         lineJoin: 'round',
       });

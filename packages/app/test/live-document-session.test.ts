@@ -90,6 +90,57 @@ describe('live document session', () => {
 
 
 describe('live session mutation isolation', () => {
+  it('waits for an agent edit before capturing the document for a manual save', async () => {
+    const engine = new OperationEngine(fixture());
+    let release!: () => void;
+    const pendingWrite = new Promise<void>((resolve) => { release = resolve; });
+    const session = new LiveDocumentSession({
+      getEngine: () => engine, replaceEngine: () => undefined, publish: () => undefined,
+      persist: () => pendingWrite, setStatus: () => undefined,
+    });
+    const edit = session.apply({ txId: 'agent-before-save', actor: 'agent', origin: 'mcp', baseRev: session.document.rev,
+      ops: [{ op: 'set_document_title', title: 'Latest agent edit' }] });
+    const manualWrite = vi.fn(() => Promise.resolve());
+    const save = session.save(manualWrite);
+    await Promise.resolve();
+    expect(manualWrite).not.toHaveBeenCalled();
+    release();
+    expect((await edit).ok).toBe(true);
+    await save;
+    expect(manualWrite).toHaveBeenCalledWith(engine.document);
+    expect(engine.document.title).toBe('Latest agent edit');
+  });
+
+  it('queues agent edits behind manual Save As and releases the queue after a failed save', async () => {
+    const engine = new OperationEngine(fixture());
+    let reject!: (error: Error) => void;
+    const pendingWrite = new Promise<void>((_resolve, rejectWrite) => { reject = rejectWrite; });
+    let path = 'old.openchart.json';
+    const persistedPaths: string[] = [];
+    const session = new LiveDocumentSession({
+      getEngine: () => engine, replaceEngine: () => undefined, publish: () => undefined,
+      persist: () => { persistedPaths.push(path); return Promise.resolve(); }, setStatus: () => undefined,
+    });
+    const save = session.save(async () => {
+      await pendingWrite;
+      path = 'new.openchart.json';
+    });
+    const rejectedSave = expect(save).rejects.toThrow('disk full');
+    const edit = session.apply({ txId: 'agent-after-save', actor: 'agent', origin: 'mcp', baseRev: session.document.rev,
+      ops: [{ op: 'set_document_title', title: 'Queued edit' }] });
+    expect(() => session.reset(new OperationEngine(fixture()))).toThrow('saving');
+    expect(session.undoLocal().ok).toBe(false);
+    await Promise.resolve();
+    expect(persistedPaths).toEqual([]);
+    reject(new Error('disk full'));
+    await rejectedSave;
+    expect((await edit).ok).toBe(true);
+    expect(persistedPaths).toEqual(['old.openchart.json']);
+    await session.save(() => { path = 'new.openchart.json'; return Promise.resolve(); });
+    expect((await session.undo()).ok).toBe(true);
+    expect(persistedPaths).toEqual(['old.openchart.json', 'new.openchart.json']);
+  });
+
   it('blocks a document switch as soon as an agent mutation is queued', async () => {
     let engine = new OperationEngine(fixture());
     let release!: () => void;

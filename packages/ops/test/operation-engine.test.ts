@@ -132,6 +132,20 @@ function createServiceEnvelope(): OperationEnvelope {
 }
 
 describe('OperationEngine', () => {
+  it('rejects a style ID collision atomically', () => {
+    const engine = new OperationEngine(baseDocument());
+    const before = engine.document;
+    const result = engine.apply({ txId: 'tx.style.collision', actor: 'user', origin: 'gui', baseRev: before.rev,
+      ops: [
+        { op: 'set_document_title', title: 'Must roll back' },
+        { op: 'create_style', style: { ...before.styles['style.service']!, uid: uid(90) } },
+      ],
+    });
+    expect(result).toMatchObject({ ok: false, diagnostics: [{ code: 'ID_COLLISION' }] });
+    expect(engine.document).toBe(before);
+    expect(engine.history.undoStack).toHaveLength(0);
+  });
+
   it('deletion sees nodes, parents, ports and edges created earlier in the same batch', () => {
     const engine = new OperationEngine(baseDocument());
     const envelope = createServiceEnvelope();

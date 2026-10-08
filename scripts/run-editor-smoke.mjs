@@ -109,6 +109,26 @@ try {
     assert.equal(await evaluate('window.__editorSmoke.initialClones'), 1);
   });
   await waitFor(() => evaluate('Boolean(document.querySelector("[data-shape-entry=\\"flowchart.process\\"]"))'), 'process shape in palette');
+  await test('icon libraries load independently and remain usable after switching', async () => {
+    const selectLibrary = (id) => evaluate(`(() => {
+      const select = document.querySelector('[aria-label="Shape panel category"]');
+      select.value = ${JSON.stringify(id)};
+      select.dispatchEvent(new Event('change', { bubbles: true }));
+    })()`);
+    await selectLibrary('simple-icons');
+    await waitFor(() => evaluate(`document.querySelector('.oc-rail-result-copy small')?.textContent === 'Simple Icons'`), 'Simple Icons results');
+    assert.equal(await evaluate(`performance.getEntriesByType('resource').some((entry) => entry.name.includes('/generated/phosphor.js'))`), false,
+      'Choosing Simple Icons must not fetch Phosphor');
+    await cdp.send('Emulation.setDeviceMetricsOverride', { width: 1024, height: 640, deviceScaleFactor: 1, mobile: false });
+    await selectLibrary('phosphor');
+    await waitFor(() => evaluate(`document.querySelector('.oc-rail-result-copy small')?.textContent === 'Phosphor'`), 'Phosphor results');
+    await selectLibrary('simple-icons');
+    await waitFor(() => evaluate(`document.querySelector('.oc-rail-result-copy small')?.textContent === 'Simple Icons'`), 'retained Simple Icons results');
+    await selectLibrary('featured');
+    await cdp.send('Emulation.clearDeviceMetricsOverride');
+    await settle();
+  });
+  await waitFor(() => evaluate('Boolean(document.querySelector("[data-shape-entry=\\"flowchart.process\\"]"))'), 'restored process palette');
   await evaluate('document.querySelector("[data-shape-entry=\\"flowchart.process\\"]").click()');
   await settle();
   const readGeometry = () => evaluate(`(() => {
@@ -225,6 +245,70 @@ try {
     await settle();
     assert.deepEqual(await counts(), before);
     assert.equal(await evaluate("document.body.textContent.includes('Cut selection')"), true);
+  });
+  await test('library swimlanes support label and size edits while the page grid stays independent', async () => {
+    await evaluate(`(() => {
+      const input = document.querySelector('[aria-label="Quick insert shapes and icons"]');
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'swimlane');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    })()`);
+    await waitFor(() => evaluate(`Boolean(document.querySelector('[title="Insert Swimlane"]'))`), 'swimlane library result');
+    await evaluate(`document.querySelector('[title="Insert Swimlane"]').click()`);
+    await settle();
+    const laneId = await evaluate(`Object.values(window.__editorSmoke.document.nodes).find((node) => node.data.shape?.entryId === 'architecture.swimlane')?.id`);
+    assert(laneId, 'The library must insert a native swimlane');
+    assert.equal(await evaluate(`Boolean(window.__editorSmoke.document.nodes[${JSON.stringify(laneId)}].container)`), true);
+    await evaluate(`document.querySelector('[title="Show contextual panel"]')?.click()`);
+    await settle();
+    await evaluate(`(() => {
+      const input = document.querySelector('.oc-inspector textarea');
+      input.focus(); input.value = 'Production lane'; input.blur();
+    })()`);
+    await settle();
+    assert.equal(await evaluate(`window.__editorSmoke.document.nodes[${JSON.stringify(laneId)}].label`), 'Production lane');
+    await evaluate(`(() => {
+      const input = [...document.querySelectorAll('.oc-inspector .oc-field')].find((field) => field.querySelector('span')?.textContent === 'W').querySelector('input');
+      input.focus(); input.value = '420'; input.blur();
+    })()`);
+    await settle();
+    assert.equal(await evaluate(`window.__editorSmoke.document.layout.overrides[${JSON.stringify(laneId)}].width`), 420);
+    await evaluate(`document.querySelector('[title="Page settings"]').click()`);
+    await settle();
+    for (const hidden of [true, false]) {
+      await evaluate(`([...document.querySelectorAll('.oc-page-view-options label')].find((label) => label.textContent.trim() === 'Grid')).querySelector('input').click()`);
+      await settle();
+      assert.equal(await evaluate(`document.querySelector('.oc-app').classList.contains('oc-grid-hidden')`), hidden);
+    }
+    await evaluate(`document.querySelector('[title="Page settings"]').click()`);
+  });
+  await test('homepage rejects oversized files and opens an editable diagram with library icons', async () => {
+    const { targetId } = await cdp.send('Target.createTarget', { url: `http://127.0.0.1:${address.port}/` });
+    const homepageTarget = await waitFor(async () => {
+      const response = await fetch(`http://127.0.0.1:${port}/json/list`);
+      return (await response.json()).find((candidate) => candidate.id === targetId);
+    }, 'homepage tab');
+    cdp.close();
+    cdp = await connect(homepageTarget.webSocketDebuggerUrl);
+    await waitFor(() => evaluate(`Boolean(document.querySelector('.web-home input[type="file"]'))`), 'homepage file input');
+    await evaluate(`(() => {
+      const input = document.querySelector('.web-home input[type="file"]');
+      const files = new DataTransfer();
+      files.items.add(new File([new Uint8Array(32 * 1024 * 1024 + 1)], 'oversized.openchart.json'));
+      input.files = files.files;
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    })()`);
+    await waitFor(() => evaluate(`document.querySelector('.web-error')?.textContent.includes('32 MiB')`), 'file size rejection');
+    assert.equal(await evaluate(`Boolean(document.querySelector('.oc-app'))`), false);
+    const documentSource = await readFile(join(root, 'examples/northstar-swimlanes.openchart.json'), 'utf8');
+    await evaluate(`(() => {
+      const input = document.querySelector('.web-home input[type="file"]');
+      const files = new DataTransfer();
+      files.items.add(new File([${JSON.stringify(documentSource)}], 'example.openchart.json'));
+      input.files = files.files;
+      input.dispatchEvent(new Event('change', { bubbles: true }));
+    })()`);
+    await waitFor(() => evaluate(`Boolean(document.querySelector('.oc-app'))`), 'opened homepage document');
+    assert.equal(await evaluate(`Boolean(document.querySelector('.web-error'))`), false);
   });
   console.log(JSON.stringify({ passed: results.every((result) => result.passed), tests: results }, null, 2));
   if (results.some((result) => !result.passed)) process.exitCode = 1;

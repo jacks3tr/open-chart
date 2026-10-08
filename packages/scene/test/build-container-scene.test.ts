@@ -21,7 +21,7 @@ function collectGroups(items: readonly SceneItem[]): readonly SceneGroup[] {
 }
 
 describe('container scenes', () => {
-  it('renders title chrome and clips nested content without flattening the child', () => {
+  it.each([false, true])('renders editable container chrome and nested content (swimlane: %s)', (swimlane) => {
     const validation = validateDocument({
       schemaVersion: 1,
       documentId: 'document.container-scene',
@@ -56,7 +56,11 @@ describe('container scenes', () => {
           layerId: 'layer.main',
           styleId: 'style.default',
           container: { clip: true },
-          data: {},
+          data: swimlane ? {
+            shape: { libraryId: 'architecture', entryId: 'architecture.swimlane' },
+            fillColor: 'none', borderColor: '#CBD5E1', borderWidth: 1,
+            textColor: '#53657A', fontSize: 16, fontWeight: 500, textAlign: 'center',
+          } : {},
         },
         'service.api': {
           id: 'service.api',
@@ -124,13 +128,25 @@ describe('container scenes', () => {
     expect(surface).toMatchObject({
       type: 'rect',
       frame: { x: 100, y: 160, width: 400, height: 300 },
-      radius: 12,
+      ...(swimlane ? { fill: 'none' } : { radius: 12 }),
     });
     expect(title).toMatchObject({
       type: 'text',
-      value: 'PRODUCTION REGION',
-      fontSize: 13,
+      value: swimlane ? 'Production region' : 'PRODUCTION REGION',
+      fontSize: swimlane ? 16 : 13,
     });
+    if (swimlane) {
+      expect(title).toMatchObject({ fill: '#53657A', fontWeight: 500, anchor: 'middle', at: { x: 300, y: 183 } });
+      expect(container.children.find((item) => item.id.endsWith('-header-rule'))).toMatchObject({
+        type: 'path', stroke: '#CBD5E1', strokeWidth: 1,
+        commands: [{ type: 'move', to: { x: 100, y: 196 } }, { type: 'line', to: { x: 500, y: 196 } }],
+      });
+      const renamed = structuredClone(validation.document);
+      renamed.nodes['container.region']!.label = 'Renamed lane';
+      const renamedScene = buildSceneDescription(renamed, { width: 800, height: 600 });
+      expect(collectGroups(renamedScene.items).find((group) => group.entityId === 'container.region')?.children)
+        .toContainEqual(expect.objectContaining({ type: 'text', value: 'Renamed lane' }));
+    }
     expect(content).toMatchObject({
       type: 'group',
       clip: {

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import northstarInput from '../../../examples/northstar-integration.openchart.json';
 import { createTransformTransaction, type TransformPreview } from '@openchart/interact';
 import { validateDocument, type OpenChartDocument } from '@openchart/ir';
@@ -8,6 +8,7 @@ import { renderDocumentToSvg } from '@openchart/serialize';
 import { createBrowserTextExport } from '../src/browser-text-export.js';
 import {
   parseDesktopDocument,
+  readBrowserDocument,
   serializeOpenChartDocument,
 } from '../src/desktop-file.js';
 import { createOpenChartPageImportTransaction } from '../src/document-import.js';
@@ -127,6 +128,43 @@ function requiredFrame(document: OpenChartDocument, nodeId: string): {
 }
 
 describe('import/export fidelity', () => {
+  it('rejects oversized browser documents before reading and accepts the 32 MiB boundary', async () => {
+    const text = vi.fn(() => Promise.resolve(JSON.stringify(editableDocument())));
+    await expect(readBrowserDocument({ size: 32 * 1024 * 1024 + 1, text })).rejects.toThrow('32 MiB');
+    expect(text).not.toHaveBeenCalled();
+    await expect(readBrowserDocument({ size: 32 * 1024 * 1024, text })).resolves.toEqual(editableDocument());
+    expect(text).toHaveBeenCalledOnce();
+  });
+
+  it('preserves referenced styles, remaps collisions, and restores target styles on undo', () => {
+    const target = editableDocument();
+    const { pageId, layerId } = targetPage(target);
+    const source = structuredClone(createApprovalFlowchartDocument().document);
+    const node = Object.values(source.nodes)[0]!;
+    const edge = Object.values(source.edges)[0]!;
+    const sharedStyle = source.styles[node.styleId]!;
+    sharedStyle.tokens = { ...sharedStyle.tokens, fillColor: '#FF00AA' };
+    source.styles['style.imported'] = { ...sharedStyle, id: 'style.imported', uid: '7'.repeat(26), role: 'flow', tokens: { strokeColor: '#00AAFF' } };
+    edge.styleId = 'style.imported';
+    source.styles['style.unused'] = { ...sharedStyle, id: 'style.unused', uid: '6'.repeat(26) };
+    const transaction = createOpenChartPageImportTransaction(target, source, {
+      txId: 'tx.import.styles', targetPageId: pageId, targetLayerId: layerId, makeUid: deterministicUidFactory(4000),
+    });
+    const engine = new OperationEngine(target);
+    expect(engine.apply(transaction.envelope)).toMatchObject({ ok: true });
+    const importedNode = engine.document.nodes[node.id]!;
+    const importedEdge = engine.document.edges[edge.id]!;
+    expect(importedNode.styleId).not.toBe(node.styleId);
+    expect(engine.document.styles[importedNode.styleId]?.tokens).toEqual(sharedStyle.tokens);
+    expect(engine.document.styles[importedEdge.styleId]?.tokens).toEqual(source.styles['style.imported']?.tokens);
+    expect(engine.document.styles['style.unused']).toBeUndefined();
+    for (const [id, style] of Object.entries(target.styles)) expect(engine.document.styles[id]).toEqual(style);
+    expect(engine.history.undoStack).toHaveLength(1);
+    expect(engine.undo()).toMatchObject({ ok: true });
+    expect(engine.document.styles).toEqual(target.styles);
+    expect(pageSnapshot(engine.document, pageId)).toEqual(pageSnapshot(target, pageId));
+  });
+
   it('keeps new diagrams free of generated sample headings and legends after adding content', () => {
     const source = editableDocument();
     const blank = createBlankInitialDocument(source);

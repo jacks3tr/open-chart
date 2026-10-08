@@ -206,6 +206,10 @@ export class LiveDocumentSession implements OpenChartToolSession {
     return this.#historyTransition('redo');
   }
 
+  public save(saveDocument: (document: OpenChartDocument) => Promise<void>): Promise<void> {
+    return this.#serialized(() => saveDocument(this.document));
+  }
+
   async #historyTransition(direction: 'undo' | 'redo'): Promise<SessionHistoryResult> {
     return this.#serialized(async () => {
       const engine = this.#options.getEngine();

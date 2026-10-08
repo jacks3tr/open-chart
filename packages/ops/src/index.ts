@@ -95,6 +95,7 @@ export type Operation =
       readonly frames: Readonly<Record<string, LayoutFrame>> | null;
     }
   | { readonly op: 'set_style_tokens'; readonly id: string; readonly tokens: Style['tokens'] }
+  | { readonly op: 'create_style'; readonly style: Style }
   | { readonly op: 'set_theme'; readonly theme: Theme | null }
   | { readonly op: 'rename_node'; readonly id: string; readonly newId: string }
   | { readonly op: 'set_node_label'; readonly id: string; readonly label: string }
@@ -253,6 +254,7 @@ const operationSchema = z.discriminatedUnion('op', [
   z
     .object({ op: z.literal('set_style_tokens'), id: idSchema, tokens: jsonRecordSchema })
     .strict(),
+  z.object({ op: z.literal('create_style'), style: DocumentSchema.shape.styles.valueType }).strict(),
   z.object({ op: z.literal('set_theme'), theme: ThemeSchema.nullable() }).strict(),
   z
     .object({ op: z.literal('rename_node'), id: idSchema, newId: idSchema })
@@ -861,6 +863,11 @@ function applyOperations(
         document.layout.engine = operation.engine;
         document.layout.derivedVersion = operation.derivedVersion;
         document.layout.derived = operation.frames === null ? null : clone(operation.frames);
+        return;
+      }
+      case 'create_style': {
+        collision(document.styles, operation.style.id, `${path}.style.id`);
+        document.styles[operation.style.id] = clone(operation.style);
         return;
       }
       case 'set_style_tokens': {

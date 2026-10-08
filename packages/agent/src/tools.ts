@@ -615,6 +615,9 @@ function changedIdsFromOperations(operations: readonly Operation[]): Set<string>
       case 'create_edge':
         changed.add(operation.edge.id);
         break;
+      case 'create_style':
+        changed.add(operation.style.id);
+        break;
       case 'set_derived_layout':
         for (const id of Object.keys(operation.frames ?? {})) {
           changed.add(id);
