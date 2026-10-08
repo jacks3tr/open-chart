@@ -255,12 +255,18 @@ function withEmbeddedIr(svg: string, document: OpenChartDocument): string {
   );
 }
 
-async function rasterize(svg: string, scale: number, region: SceneRect): Promise<RenderedImage> {
-  rasterDimensions(region, scale);
+function needsSystemFonts(items: readonly SceneItem[]): boolean {
+  return items.some((item) => item.type === 'group'
+    ? needsSystemFonts(item.children)
+    : item.type === 'text' && !/^(?:['"]?IBM Plex (?:Sans|Mono)['"]?|sans-serif|monospace)(?:\s*,|$)/i.test(item.fontFamily.trim()));
+}
+
+async function rasterize(svg: string, scale: number, scene: SceneDescription): Promise<RenderedImage> {
+  rasterDimensions(scene.bounds, scale);
   const rendered = await renderAsync(svg, {
     fitTo: { mode: 'zoom', value: scale },
     font: {
-      loadSystemFonts: true,
+      loadSystemFonts: needsSystemFonts(scene.items),
       fontFiles: fontPaths,
       defaultFontFamily: 'IBM Plex Sans',
       sansSerifFamily: 'IBM Plex Sans',
@@ -368,7 +374,7 @@ export async function exportDocumentArtifact(
         return artifact('svg', pageId, region.width, region.height, data, embedded);
       }
       case 'png': {
-        const rendered = await rasterize(svg, scale, region);
+        const rendered = await rasterize(svg, scale, scene);
         return artifact(
           'png',
           pageId,
@@ -378,7 +384,7 @@ export async function exportDocumentArtifact(
         );
       }
       case 'jpeg': {
-        const rendered = await rasterize(svg, scale, region);
+        const rendered = await rasterize(svg, scale, scene);
         const encoded = encodeJpeg(
           { width: rendered.width, height: rendered.height, data: opaqueRgba(rendered) },
           quality,
@@ -401,7 +407,7 @@ export async function exportDocumentArtifact(
             fileURLToPath(import.meta.resolve(`@openchart/scene/fonts/${plexPdfFont(family, bold, italic)}`)))),
         );
       case 'pptx': {
-        const fallback = (await rasterize(svg, 1, region)).asPng();
+        const fallback = (await rasterize(svg, 1, scene)).asPng();
         return artifact(
           'pptx',
           pageId,

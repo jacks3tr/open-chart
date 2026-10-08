@@ -95,6 +95,7 @@ jobs:
       - run: npm run test:editor
 
   desktop:
+    needs: quality
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
@@ -106,13 +107,21 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - name: Identify Rust toolchain for the cache
+        id: rustc
+        shell: pwsh
+        run: |
+          $version = (rustc --version).Trim() -replace '[^a-zA-Z0-9._-]', '-'
+          "version=$version" >> $env:GITHUB_OUTPUT
       - uses: actions/cache@v4
         with:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
             apps/desktop/src-tauri/target
-          key: windows-cargo-${{ hashFiles('apps/desktop/src-tauri/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-${{ steps.rustc.outputs.version }}-${{ hashFiles('apps/desktop/src-tauri/Cargo.lock', 'apps/desktop/src-tauri/Cargo.toml', 'apps/desktop/src-tauri/tauri.conf.json') }}-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-${{ steps.rustc.outputs.version }}-${{ hashFiles('apps/desktop/src-tauri/Cargo.lock', 'apps/desktop/src-tauri/Cargo.toml', 'apps/desktop/src-tauri/tauri.conf.json') }}-
       - name: Build frontend assets for native context
         run: npm run build --workspace @openchart/app
       - name: Test native persistence
