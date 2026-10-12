@@ -258,7 +258,10 @@ function withEmbeddedIr(svg: string, document: OpenChartDocument): string {
 function needsSystemFonts(items: readonly SceneItem[]): boolean {
   return items.some((item) => item.type === 'group'
     ? needsSystemFonts(item.children)
-    : item.type === 'text' && !/^(?:['"]?IBM Plex (?:Sans|Mono)['"]?|sans-serif|monospace)(?:\s*,|$)/i.test(item.fontFamily.trim()));
+    : item.type === 'text' && (
+      /[^\t\n\r\x20-\x7e\u00b7\u2022\u2026]/u.test(item.value)
+      || !/^(?:['"]?IBM Plex (?:Sans|Mono)['"]?|sans-serif|monospace)(?:\s*,|$)/i.test(item.fontFamily.trim())
+    ));
 }
 
 async function rasterize(svg: string, scale: number, scene: SceneDescription): Promise<RenderedImage> {

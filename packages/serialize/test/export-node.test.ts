@@ -28,17 +28,23 @@ const document = (() => {
 })();
 
 describe('SceneDescription file export', () => {
-  it('avoids host font discovery for bundled typography and preserves custom font support', async () => {
+  it('avoids host font discovery for bundled typography and preserves custom font and Unicode fallback', async () => {
     const render = vi.mocked(resvg.renderAsync);
     await exportDocumentArtifact(document, { format: 'png' });
     expect(render.mock.calls.at(-1)?.[1]?.font?.loadSystemFonts).toBe(false);
-    // Check custom-font opt-in without making this test scan the runner's font collection.
     const rendered = await render.mock.results.at(-1)!.value as Awaited<ReturnType<typeof resvg.renderAsync>>;
-    render.mockResolvedValueOnce(rendered);
-    const custom = structuredClone(document);
-    custom.nodes['system.northstar']!.data.fontFamily = 'Georgia, serif';
-    await exportDocumentArtifact(custom, { format: 'png' });
-    expect(render.mock.calls.at(-1)?.[1]?.font?.loadSystemFonts).toBe(true);
+    for (const [fontFamily, label] of [
+      ['Georgia, serif', 'Northstar ERP'],
+      ['IBM Plex Sans', '生产系统'],
+      ['IBM Plex Sans', '😀'],
+    ] as const) {
+      render.mockResolvedValueOnce(rendered);
+      const custom = structuredClone(document);
+      custom.nodes['system.northstar']!.data.fontFamily = fontFamily;
+      custom.nodes['system.northstar']!.label = label;
+      await exportDocumentArtifact(custom, { format: 'png' });
+      expect(render.mock.calls.at(-1)?.[1]?.font?.loadSystemFonts).toBe(true);
+    }
   });
 
   it.each(['svg', 'png', 'jpeg', 'pdf', 'pptx'] as const)(
