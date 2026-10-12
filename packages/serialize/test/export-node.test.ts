@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
 
 import JSZip from 'jszip';
-import { describe, expect, it } from 'vitest';
+import * as resvg from '@resvg/resvg-js';
+import { describe, expect, it, vi } from 'vitest';
 
 import { validateDocument } from '@openchart/ir';
 
@@ -9,6 +10,8 @@ import {
   exportDocumentArtifact,
   type DocumentExportError,
 } from '../src/export-node.js';
+
+vi.mock('@resvg/resvg-js', { spy: true });
 
 const document = (() => {
   const northstarInput: unknown = JSON.parse(
@@ -25,6 +28,25 @@ const document = (() => {
 })();
 
 describe('SceneDescription file export', () => {
+  it('avoids host font discovery for bundled typography and preserves custom font and Unicode fallback', async () => {
+    const render = vi.mocked(resvg.renderAsync);
+    await exportDocumentArtifact(document, { format: 'png' });
+    expect(render.mock.calls.at(-1)?.[1]?.font?.loadSystemFonts).toBe(false);
+    const rendered = await render.mock.results.at(-1)!.value as Awaited<ReturnType<typeof resvg.renderAsync>>;
+    for (const [fontFamily, label] of [
+      ['Georgia, serif', 'Northstar ERP'],
+      ['IBM Plex Sans', '生产系统'],
+      ['IBM Plex Sans', '😀'],
+    ] as const) {
+      render.mockResolvedValueOnce(rendered);
+      const custom = structuredClone(document);
+      custom.nodes['system.northstar']!.data.fontFamily = fontFamily;
+      custom.nodes['system.northstar']!.label = label;
+      await exportDocumentArtifact(custom, { format: 'png' });
+      expect(render.mock.calls.at(-1)?.[1]?.font?.loadSystemFonts).toBe(true);
+    }
+  });
+
   it.each(['svg', 'png', 'jpeg', 'pdf', 'pptx'] as const)(
     'emits %s without mutating the canonical document', async (format) => {
       const before = JSON.stringify(document);
